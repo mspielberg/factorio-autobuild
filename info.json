@@ -1,0 +1,10 @@
+{
+	"name": "autobuild",
+	"version": "0.1.0",
+	"factorio_version": "0.17",
+	"title": "Autobuild",
+	"author": "Therax",
+	"homepage": "",
+	"description": "",
+	"dependencies": []
+}

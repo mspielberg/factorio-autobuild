@@ -1,0 +1,2 @@
+require "custominput"
+require "shortcuts"
