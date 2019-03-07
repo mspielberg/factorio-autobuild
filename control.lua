@@ -82,7 +82,7 @@ for event_name, handler in pairs (event_handlers) do
   script.on_event(defines.events[event_name] or event_name, handler)
 end
 
-local function get_candidates(player_index, player, state)
+local function get_candidates(player, state)
   local candidates = state.build_candidates
   if not candidates then
     local build_distance = math.min(player.build_distance + 0.5, MAX_DISTANCE)
@@ -119,18 +119,28 @@ local function try_insert_requested(entity, request_proxy, player)
   request_proxy.item_requests = requested
 end
 
+local function insert_or_spill(player, entity, name, count)
+  local inserted = player.insert{name=name, count=count}
+  if inserted < count then
+    entity.surface.spill_item_stack(entity.position, {name = name, count = count - inserted})
+  end
+end
+
 local function try_revive_with_stack(ghost, player, stack_to_place)
   if player.get_item_count(stack_to_place.name) < stack_to_place.count then
     return false
   end
 
   player.remove_item(stack_to_place)
-  local _, entity, request_proxy = ghost.revive{
+  local items, entity, request_proxy = ghost.revive{
     return_item_request_proxy = true,
     raise_revive = true,
   }
 
   if entity then
+    for name, count in pairs(items) do
+      insert_or_spill(player, entity, name, count)
+    end
     script.raise_event(
       defines.events.on_built_entity,
       { player_index = player.index, revived = true, created_entity = entity, stack = stack_to_place }
@@ -169,8 +179,8 @@ local function try_candidate(entity, player)
   end
 end
 
-local function player_autobuild(player_index, player, state)
-  local candidates = get_candidates(player_index, player, state)
+local function player_autobuild(player, state)
+  local candidates = get_candidates(player, state)
 
   local candidate
   repeat
@@ -185,12 +195,9 @@ local function player_autobuild(player_index, player, state)
   end
 end
 
-local function player_auto_deconstruct(player_index, player, state)
-end
-
 local function handle_player_update(player)
-  local player_index = player.index
-  local state = get_player_state(player_index)
+  if player.in_combat then return end
+  local state = get_player_state(player.index)
 
   local updates = state.motionless_updates or 0
   if updates < UPDATE_THRESHOLD then
@@ -198,7 +205,7 @@ local function handle_player_update(player)
     return
   end
 
-  player_autobuild(player_index, player, state)
+  player_autobuild(player, state)
 end
 
 script.on_nth_tick(UPDATE_PERIOD, function(event)
