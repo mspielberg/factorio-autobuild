@@ -1,6 +1,7 @@
 local Grid = require "lualib.grid.Grid"
 
 local MAX_DISTANCE = 128
+local MAX_CANDIDATES = 100
 local SHORTCUT_NAME = "autobuild-toggle-construction"
 local UPDATE_PERIOD = 10
 local UPDATE_THRESHOLD = 4
@@ -47,7 +48,8 @@ end
 local event_handlers = {
   on_built_entity = function(event)
     local entity = event.created_entity
-    if entity.name == "entity-ghost" then
+    local name = entity.name
+    if name == "entity-ghost" or name == "tile-ghost" then
       ghosts:insert(entity)
     end
   end,
@@ -87,7 +89,7 @@ local function get_candidates(player, state)
   if not candidates then
     local build_distance = math.min(player.build_distance + 0.5, MAX_DISTANCE)
     log("searching for ghosts within "..build_distance.." of "..player.name)
-    candidates = ghosts:nearest_neighbors(player.position, math.huge, build_distance)
+    candidates = ghosts:nearest_neighbors(player.position, MAX_CANDIDATES, build_distance)
     state.build_candidates = candidates
   end
   return candidates
@@ -95,12 +97,13 @@ end
 
 local to_place_cache = {}
 local function to_place(entity_name)
-  local item_name = to_place_cache[entity_name]
-  if not item_name then
-    item_name = game.entity_prototypes[entity_name].items_to_place_this
-    to_place_cache[entity_name] = item_name or "(UNPLACEABLE)"
+  local stacks = to_place_cache[entity_name]
+  if not stacks then
+    local prototype = game.entity_prototypes[entity_name] or game.tile_prototypes[entity_name]
+    stacks = prototype and prototype.items_to_place_this
+    to_place_cache[entity_name] = stacks or {}
   end
-  return item_name
+  return stacks
 end
 
 local function try_insert_requested(entity, request_proxy, player)
@@ -131,26 +134,56 @@ local function try_revive_with_stack(ghost, player, stack_to_place)
     return false
   end
 
+  local is_tile = ghost.name == "tile-ghost"
+  local old_tile
+  if is_tile then
+    local position = ghost.position
+    old_tile = {
+      old_tile = ghost.surface.get_tile(position.x, position.y).prototype,
+      position = position,
+    }
+  end
+
   player.remove_item(stack_to_place)
   local items, entity, request_proxy = ghost.revive{
     return_item_request_proxy = true,
     raise_revive = true,
   }
 
-  if entity then
-    for name, count in pairs(items) do
-      insert_or_spill(player, entity, name, count)
-    end
+  if not items then return false end
+
+  for name, count in pairs(items) do
+    insert_or_spill(player, entity, name, count)
+  end
+  if is_tile then
+    script.raise_event(
+      defines.events.on_player_built_tile,
+      {
+        player_index = player.index,
+        surface_index = player.surface.index,
+        tiles = { old_tile },
+        item = game.item_prototypes[stack_to_place.name],
+        revived = true,
+        stack = stack_to_place,
+      }
+    )
+  else
     script.raise_event(
       defines.events.on_built_entity,
-      { player_index = player.index, revived = true, created_entity = entity, stack = stack_to_place }
+      {
+        player_index = player.index,
+        revived = true,
+        created_entity = entity,
+        stack = stack_to_place,
+      }
     )
   end
+
   if request_proxy then
     try_insert_requested(entity, request_proxy, player)
   end
 
-  return entity ~= nil
+  return items ~= nil
 end
 
 local function try_revive(ghost, player)
@@ -165,16 +198,21 @@ local function try_revive(ghost, player)
 end
 
 local function try_deconstruct(entity, player)
-  return player.mine_entity(entity)
+  if entity.name == "deconstructible-tile-proxy" then
+    local position = entity.position
+    return player.mine_tile(entity.surface.get_tile(position.x, position.y))
+  else
+    return player.mine_entity(entity)
+  end
 end
 
 local function try_candidate(entity, player)
   local state = get_player_state(player.index)
   if entity.valid then
-    if state.enable_construction and entity.name == "entity-ghost" then
-      return try_revive(entity, player) 
-    elseif state.enable_deconstruction and entity.to_be_deconstructed(player.force) then
+    if state.enable_deconstruction and entity.to_be_deconstructed(player.force) then
       return try_deconstruct(entity, player)
+    elseif state.enable_construction then
+      return try_revive(entity, player)
     end
   end
 end
@@ -191,6 +229,7 @@ local function player_autobuild(player, state)
     candidates[state.candidate_iter] = nil
     state.candidate_iter = nil
   else
+    state.motionless_updates = 0
     state.build_candidates = nil
   end
 end

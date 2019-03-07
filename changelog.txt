@@ -2,9 +2,10 @@
 Version: 0.1.0
 Date: 2019-03-07
   Major Features:
-    - Build ghosts and deconstruct entities near the player when stationary.
+    - Build ghosts and deconstruct near the player when stationary.
     - Low UPS cost even with a huge base and extended player reach.
   Minor Features:
+    - Builds from closest first.
     - Toolbar + keyboard shortcut toggles construction and deconstruction.
     - Event integration with other mods.
     - Conserves items when building a ghost with items underneath.
