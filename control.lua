@@ -88,7 +88,6 @@ local function get_candidates(player, state)
   local candidates = state.build_candidates
   if not candidates then
     local build_distance = math.min(player.build_distance + 0.5, MAX_DISTANCE)
-    log("searching for ghosts within "..build_distance.." of "..player.name)
     candidates = ghosts:nearest_neighbors(player.position, MAX_CANDIDATES, build_distance)
     state.build_candidates = candidates
   end
@@ -186,13 +185,10 @@ local function try_revive_with_stack(ghost, player, stack_to_place)
   return items ~= nil
 end
 
-local function try_revive(ghost, player)
-  if not ghost or not ghost.valid then
-    return false
-  end
-  local stacks_to_place = to_place(ghost.ghost_name)
+local function try_revive(entity, player)
+  local stacks_to_place = to_place(entity.ghost_name)
   for _, stack_to_place in pairs(stacks_to_place) do
-    local success = try_revive_with_stack(ghost, player, stack_to_place)
+    local success = try_revive_with_stack(entity, player, stack_to_place)
     if success then return success end
   end
 end
@@ -212,7 +208,12 @@ local function try_candidate(entity, player)
     if state.enable_deconstruction and entity.to_be_deconstructed(player.force) then
       return try_deconstruct(entity, player)
     elseif state.enable_construction then
-      return try_revive(entity, player)
+      local entity_type = entity.type
+      if entity_type == "entity-ghost" or entity_type == "tile-ghost" then
+        return try_revive(entity, player)
+      else
+        return false
+      end
     end
   end
 end
@@ -225,10 +226,7 @@ local function player_autobuild(player, state)
     state.candidate_iter, candidate = next(candidates, state.candidate_iter)
   until (not candidate) or try_candidate(candidate, player)
 
-  if candidate then
-    candidates[state.candidate_iter] = nil
-    state.candidate_iter = nil
-  else
+  if not candidate then
     state.motionless_updates = 0
     state.build_candidates = nil
   end
