@@ -103,6 +103,18 @@ local function distance2(p1, p2)
   return dx * dx + dy * dy
 end
 
+local abs = math.abs
+local max = math.max
+local function distance_chebyshev(p1, p2)
+  local dx = abs(p1.x - p2.x)
+  local dy = abs(p1.y - p2.y)
+  if dx > dy then
+    return dx + dy / 1000
+  else
+    return dy + dx / 1000
+  end
+end
+
 local function ascending_by_distance(a, b)
   return a.distance < b.distance
 end
@@ -121,16 +133,15 @@ function Grid:nearest_neighbors(position, k, max_distance)
   local pcx, pcy = util.chunkxy(res, position)
   local candidates = {}
   local max_chunk_radius = max_distance <= from_boundary and 0 or math.ceil(max_distance / res)
-  local max_distance2 = max_distance * max_distance
   for cr=0,max_chunk_radius do
     for cx, cy in util.radius_iter(pcx, pcy, cr) do
       local c = chunk(self, cx, cy)
       if c then
         for i, entry in pairs(c) do
-          local d2 = distance2(position, entry.position)
-          if d2 <= max_distance2 then
+          local d = distance_chebyshev(position, entry.position)
+          if d <= max_distance then
             if entry.entity.valid then
-              entry.distance = d2
+              entry.distance = d
               candidates[#candidates+1] = entry
             else
               c[i] = nil
@@ -145,9 +156,9 @@ function Grid:nearest_neighbors(position, k, max_distance)
   end
 
   table.sort(candidates, ascending_by_distance)
-      for i=k+1,#candidates do
-        candidates[i] = nil
-      end
+  for i=k+1,#candidates do
+    candidates[i] = nil
+  end
   return extract_entities(candidates)
 end
 
