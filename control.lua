@@ -233,8 +233,9 @@ local function player_autobuild(player, state)
 end
 
 local function handle_player_update(player)
-  if player.in_combat then return end
   local state = get_player_state(player.index)
+  if not state.enable_construction and not state.enable_destruction then return end
+  if player.in_combat then return end
 
   local updates = state.motionless_updates or 0
   if updates < UPDATE_THRESHOLD then
