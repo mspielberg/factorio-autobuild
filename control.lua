@@ -72,6 +72,7 @@ local event_handlers = {
     local state = get_player_state(event.player_index)
     state.motionless_updates = 0
     state.build_candidates = nil
+    state.candidate_iter = nil
   end,
 
   ["autobuild-toggle-construction"] = function(event)
@@ -90,6 +91,7 @@ local function get_candidates(player, state)
     local build_distance = math.min(player.build_distance + 0.5, MAX_DISTANCE)
     candidates = ghosts:nearest_neighbors(player.position, MAX_CANDIDATES, build_distance)
     state.build_candidates = candidates
+    state.candidate_iter = nil
   end
   return candidates
 end
