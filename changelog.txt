@@ -1,4 +1,9 @@
 ---------------------------------------------------------------------------------------------------
+Version: 0.1.2
+Date: 2019-03-12
+  Bugfixes:
+    - Potential fix for crash while iterating over candidate list. (https://mods.factorio.com/mod/autobuild/discussion/5c87a36b6df489000d9ca4ab)
+---------------------------------------------------------------------------------------------------
 Version: 0.1.1
 Date: 2019-03-11
   Changes:
