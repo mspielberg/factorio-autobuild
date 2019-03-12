@@ -1,4 +1,13 @@
 ---------------------------------------------------------------------------------------------------
+Version: 0.1.1
+Date: 2019-03-11
+  Changes:
+    - Build distance is now a square centered on the character, to better match personal roboports.
+    - Change default keyboard shortbut to SHIFT + B.
+  Bugfixes:
+    - Fix crash when cancelling deconstruction.
+    - Fix item loss when build location is blocked.
+---------------------------------------------------------------------------------------------------
 Version: 0.1.0
 Date: 2019-03-07
   Major Features:
