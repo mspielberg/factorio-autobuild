@@ -230,8 +230,13 @@ local function player_autobuild(player, state)
   until (not candidate) or try_candidate(candidate, player)
 
   if not candidate then
-    state.motionless_updates = 0
+    if not state.one_success then
+      state.motionless_updates = -10
+    end
     state.build_candidates = nil
+    state.one_success = nil
+  else
+    state.one_success = true
   end
 end
 
