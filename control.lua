@@ -143,13 +143,13 @@ local function try_revive_with_stack(ghost, player, stack_to_place)
     }
   end
 
-  player.remove_item(stack_to_place)
   local items, entity, request_proxy = ghost.revive{
     return_item_request_proxy = true,
     raise_revive = true,
   }
-
   if not items then return false end
+
+  player.remove_item(stack_to_place)
 
   for name, count in pairs(items) do
     insert_or_spill(player, entity, name, count)
