@@ -108,13 +108,16 @@ end
 local function try_insert_requested(entity, request_proxy, player)
   local requested = request_proxy.item_requests
   for name, required in pairs(requested) do
-    local removed = player.remove_item{name = name, count = required}
-    if removed > 0 then
-      entity.insert{name = name, count = removed}
-      if removed == required then
-        requested[name] = nil
-      else
-        requested[name] = required - removed
+    local to_insert = math.min(player.get_item_count(name), required)
+    if to_insert > 0 then
+      local inserted = entity.insert{name = name, count = to_insert}
+      if inserted > 0 then
+        player.remove_item{name = name, count = inserted}
+        if inserted == required then
+          requested[name] = nil
+        else
+          requested[name] = required - inserted
+        end
       end
     end
   end
