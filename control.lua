@@ -1,12 +1,14 @@
-local Grid = require "lualib.grid.Grid"
+local NDCache = require "NDCache"
+local Scanner = require "Scanner"
 
+local CHUNK_SIZE = 32
 local MAX_DISTANCE = 128
 local MAX_CANDIDATES = 100
 local SHORTCUT_NAME = "autobuild-toggle-construction"
 local UPDATE_PERIOD = 10
 local UPDATE_THRESHOLD = 4
 
-local ghosts
+local cache = NDCache.new(Scanner.generator)
 local player_state
 
 local function get_player_state(player_index)
@@ -19,21 +21,18 @@ local function get_player_state(player_index)
 end
 
 local function on_load()
-  ghosts = global.ghosts
-  Grid.restore(ghosts)
   player_state = global.player_state
 end
 script.on_load(on_load)
 
 local function on_init()
-  global.ghosts = Grid.new()
   global.player_state = {}
   on_load()
 end
 script.on_init(on_init)
 
 local function on_configuration_changed()
-  ghosts:migrate()
+  global.ghosts = nil
 end
 script.on_configuration_changed(on_configuration_changed)
 
@@ -50,17 +49,27 @@ local function set_enabled(player, enable)
   end
 end
 
+local floor = math.floor
+local function entity_chunk_key(entity)
+  local position = entity.position
+  return {
+    entity.surface.name,
+    floor(position.x / CHUNK_SIZE),
+    floor(position.y / CHUNK_SIZE),
+  }
+end
+
+local function entity_changed(event)
+  cache:invalidate(entity_chunk_key(event.entity))
+end
+
 local event_handlers = {
   on_built_entity = function(event)
     local entity = event.created_entity
     local name = entity.name
     if name == "entity-ghost" or name == "tile-ghost" then
-      ghosts:insert(entity)
+      cache:invalidate(entity_chunk_key(entity))
     end
-  end,
-
-  on_cancelled_deconstruction = function(event)
-    ghosts:delete(event.entity)
   end,
 
   on_lua_shortcut = function(event)
@@ -69,9 +78,7 @@ local event_handlers = {
     set_enabled(player, not player.is_shortcut_toggled(SHORTCUT_NAME))
   end,
 
-  on_marked_for_deconstruction = function(event)
-    ghosts:insert(event.entity)
-  end,
+  on_marked_for_deconstruction = entity_changed,
 
   on_player_changed_position = function(event)
     local state = get_player_state(event.player_index)
@@ -94,7 +101,12 @@ local function get_candidates(player, state)
   local candidates = state.build_candidates
   if not candidates then
     local build_distance = math.min(player.build_distance + 0.5, MAX_DISTANCE)
-    candidates = ghosts:nearest_neighbors(player.position, MAX_CANDIDATES, build_distance)
+    candidates = Scanner.find_candidates(
+      cache,
+      player.surface.name,
+      player.position,
+      build_distance,
+      MAX_CANDIDATES)
     state.build_candidates = candidates
     state.candidate_iter = nil
   end
@@ -283,5 +295,4 @@ script.on_nth_tick(UPDATE_PERIOD, function(event)
   for _, player in pairs(game.connected_players) do
     handle_player_update(player)
   end
-  ghosts:gc(gc_filter)
 end)
