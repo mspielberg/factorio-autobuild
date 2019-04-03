@@ -32,6 +32,11 @@ local function on_init()
 end
 script.on_init(on_init)
 
+local function on_configuration_changed()
+  ghosts:migrate()
+end
+script.on_configuration_changed(on_configuration_changed)
+
 local function set_enabled(player, enable)
   player.set_shortcut_toggled(SHORTCUT_NAME, enable)
   local state = get_player_state(player.index)
@@ -102,6 +107,9 @@ local function to_place(entity_name)
   if not stacks then
     local prototype = game.entity_prototypes[entity_name] or game.tile_prototypes[entity_name]
     stacks = prototype and prototype.items_to_place_this
+    for _, stack in pairs(stacks) do
+      stack.prototype = game.item_prototypes[stack.name]
+    end
     to_place_cache[entity_name] = stacks or {}
   end
   return stacks
@@ -154,8 +162,6 @@ local function try_revive_with_stack(ghost, player, stack_to_place)
   }
   if not items then return false end
 
-  player.remove_item(stack_to_place)
-
   for name, count in pairs(items) do
     insert_or_spill(player, entity, name, count)
   end
@@ -182,6 +188,8 @@ local function try_revive_with_stack(ghost, player, stack_to_place)
       }
     )
   end
+
+  player.remove_item(stack_to_place)
 
   if request_proxy then
     try_insert_requested(entity, request_proxy, player)
@@ -242,7 +250,15 @@ local function player_autobuild(player, state)
   end
 end
 
+local god_controller = defines.controllers.god
+local character_controller = defines.controllers.character
 local function handle_player_update(player)
+  local controller = player.controller_type
+  if controller ~= god_controller and controller ~= character_controller then
+    -- don't allow spectators or characters awaiting respawn to act
+    return
+  end
+
   local state = get_player_state(player.index)
   if not state.enable_construction and not state.enable_destruction then return end
   if player.in_combat then return end
@@ -256,8 +272,16 @@ local function handle_player_update(player)
   player_autobuild(player, state)
 end
 
+local function gc_filter(entity)
+  local name = entity.name
+  return name == "entity-ghost"
+    or name == "tile-ghost"
+    or entity.to_be_deconstructed(entity.force)
+end
+
 script.on_nth_tick(UPDATE_PERIOD, function(event)
   for _, player in pairs(game.connected_players) do
     handle_player_update(player)
   end
+  ghosts:gc(gc_filter)
 end)
