@@ -1,4 +1,9 @@
 ---------------------------------------------------------------------------------------------------
+Version: 0.2.0
+Date: 2019-04-03
+  Changes:
+    - Now stores no information in the save.  Instead reconstructs records of ghosts and deconstruction orders on demand.
+---------------------------------------------------------------------------------------------------
 Version: 0.1.2
 Date: 2019-03-12
   Bugfixes:
