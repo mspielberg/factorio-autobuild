@@ -1,4 +1,10 @@
 ---------------------------------------------------------------------------------------------------
+Version: 0.2.1
+Date: 2019-12-07
+  Changes:
+    - Only raise script_raised_revive. This yields behavior closer to the built-in map editor, but
+      different from some similar mods.
+---------------------------------------------------------------------------------------------------
 Version: 0.2.0
 Date: 2019-04-03
   Changes:
