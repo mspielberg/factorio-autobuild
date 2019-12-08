@@ -177,30 +177,6 @@ local function try_revive_with_stack(ghost, player, stack_to_place)
   for name, count in pairs(items) do
     insert_or_spill(player, entity, name, count)
   end
-  if is_tile then
-    script.raise_event(
-      defines.events.on_player_built_tile,
-      {
-        player_index = player.index,
-        surface_index = player.surface.index,
-        tiles = { old_tile },
-        item = game.item_prototypes[stack_to_place.name],
-        revived = true,
-        stack = stack_to_place,
-      }
-    )
-  else
-    script.raise_event(
-      defines.events.on_built_entity,
-      {
-        player_index = player.index,
-        revived = true,
-        created_entity = entity,
-        stack = stack_to_place,
-      }
-    )
-  end
-
   player.remove_item(stack_to_place)
 
   if request_proxy then
