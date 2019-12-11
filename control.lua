@@ -60,17 +60,19 @@ local function entity_chunk_key(entity)
 end
 
 local function entity_changed(event)
-  cache:invalidate(entity_chunk_key(event.entity))
+  cache:invalidate(entity_chunk_key(event.entity or event.created_entity))
+end
+
+local function entity_built(event)
+  local entity = event.entity or event.destination
+  local name = entity.name
+  if name == "entity-ghost" or name == "tile-ghost" then
+    cache:invalidate(entity_chunk_key(entity))
+  end
 end
 
 local event_handlers = {
-  on_built_entity = function(event)
-    local entity = event.created_entity
-    local name = entity.name
-    if name == "entity-ghost" or name == "tile-ghost" then
-      cache:invalidate(entity_chunk_key(entity))
-    end
-  end,
+  on_entity_cloned = entity_built,
 
   on_lua_shortcut = function(event)
     if event.prototype_name ~= SHORTCUT_NAME then return end
@@ -88,6 +90,8 @@ local event_handlers = {
     state.candidate_iter = nil
   end,
 
+  script_raised_built = entity_built,
+
   ["autobuild-toggle-construction"] = function(event)
     local player = game.players[event.player_index]
     set_enabled(player, not player.is_shortcut_toggled(SHORTCUT_NAME))
@@ -97,6 +101,8 @@ local event_handlers = {
 for event_name, handler in pairs (event_handlers) do
   script.on_event(defines.events[event_name] or event_name, handler)
 end
+
+script.on_event(defines.events.on_built_entity, entity_changed, {{ filter = "ghost" }})
 
 local function get_candidates(player, state)
   local candidates = state.build_candidates
@@ -291,13 +297,6 @@ local function handle_player_update(player)
   end
 
   player_autobuild(player, state)
-end
-
-local function gc_filter(entity)
-  local name = entity.name
-  return name == "entity-ghost"
-    or name == "tile-ghost"
-    or entity.to_be_deconstructed(entity.force)
 end
 
 script.on_nth_tick(UPDATE_PERIOD, function(event)
