@@ -1,4 +1,11 @@
 ---------------------------------------------------------------------------------------------------
+Version: 0.2.2
+Date: 2019-12-10
+  Major Features:
+    - Add support for upgrading entities.
+  Minor Features:
+    - Improve support for ghosts created by other mods and the map editor.
+---------------------------------------------------------------------------------------------------
 Version: 0.2.1
 Date: 2019-12-07
   Changes:
