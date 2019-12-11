@@ -11,7 +11,8 @@ local function filter_entities(entities)
       local name = entity.name
       if name == "entity-ghost"
       or name == "tile-ghost"
-      or entity.to_be_deconstructed(entity.force) then
+      or entity.to_be_deconstructed(entity.force)
+      or entity.to_be_upgraded() then
         filtered[i] = entity
         i = i + 1
       end
@@ -113,7 +114,9 @@ local function filter_cache_entries(entries, max_distance)
     if entry.distance <= max_distance then
       local entity = entry.entity
       if entity.valid
-      and (entry.is_ghost or entity.to_be_deconstructed(entity.force)) then
+      and (entry.is_ghost
+           or entity.to_be_deconstructed(entity.force)
+           or entity.to_be_upgraded()) then
         filtered[i] = entry
         i = i + 1
       end

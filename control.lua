@@ -79,6 +79,7 @@ local event_handlers = {
   end,
 
   on_marked_for_deconstruction = entity_changed,
+  on_marked_for_upgrade = entity_changed,
 
   on_player_changed_position = function(event)
     local state = get_player_state(event.player_index)
@@ -186,10 +187,40 @@ local function try_revive_with_stack(ghost, player, stack_to_place)
   return items ~= nil
 end
 
+local function try_upgrade_with_stack(entity, target_name, player, stack_to_place)
+  if player.get_item_count(stack_to_place.name) < stack_to_place.count then
+    return false
+  end
+
+  local entity = entity.surface.create_entity{
+    name = target_name,
+    position = entity.position,
+    direction = entity.direction,
+    force = entity.force,
+    fast_replace = true,
+    player = player,
+    raise_built = true,
+  }
+  if entity then
+    player.remove_item(stack_to_place)
+    return true
+  end
+  return false
+end
+
 local function try_revive(entity, player)
   local stacks_to_place = to_place(entity.ghost_name)
   for _, stack_to_place in pairs(stacks_to_place) do
     local success = try_revive_with_stack(entity, player, stack_to_place)
+    if success then return success end
+  end
+end
+
+local function try_upgrade(entity, player)
+  local target_name = entity.get_upgrade_target().name
+  local stacks_to_place = to_place(target_name)
+  for _, stack_to_place in pairs(stacks_to_place) do
+    local success = try_upgrade_with_stack(entity, target_name, player, stack_to_place)
     if success then return success end
   end
 end
@@ -212,6 +243,8 @@ local function try_candidate(entity, player)
       local entity_type = entity.type
       if entity_type == "entity-ghost" or entity_type == "tile-ghost" then
         return try_revive(entity, player)
+      elseif entity.to_be_upgraded() then
+        return try_upgrade(entity, player)
       else
         return false
       end
