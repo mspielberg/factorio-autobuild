@@ -223,7 +223,9 @@ local function try_revive(entity, player)
 end
 
 local function try_upgrade(entity, player)
-  local target_name = entity.get_upgrade_target().name
+  local target_proto = entity.get_upgrade_target()
+  if not target_proto then return false end
+  local target_name = target_proto.name
   local stacks_to_place = to_place(target_name)
   for _, stack_to_place in pairs(stacks_to_place) do
     local success = try_upgrade_with_stack(entity, target_name, player, stack_to_place)
