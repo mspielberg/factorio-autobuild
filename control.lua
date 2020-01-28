@@ -205,6 +205,8 @@ local function try_upgrade_with_stack(entity, target_name, player, stack_to_plac
     force = entity.force,
     fast_replace = true,
     player = player,
+    type = entity.type:find("loader") and entity.loader_type or
+      entity.type == "underground-belt" and entity.belt_to_ground_type,
     raise_built = true,
   }
   if entity then
