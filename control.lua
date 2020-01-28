@@ -224,7 +224,7 @@ local function try_revive(entity, player)
   end
 end
 
-local function try_upgrade(entity, player)
+local function try_upgrade_single_entity(entity, player)
   local target_proto = entity.get_upgrade_target()
   if not target_proto then return false end
   local target_name = target_proto.name
@@ -232,6 +232,22 @@ local function try_upgrade(entity, player)
   for _, stack_to_place in pairs(stacks_to_place) do
     local success = try_upgrade_with_stack(entity, target_name, player, stack_to_place)
     if success then return success end
+  end
+end
+
+local function try_upgrade_paired_entity(entity, other_entity, player)
+  local success = try_upgrade_single_entity(entity, player)
+  local other_success = try_upgrade_single_entity(other_entity, player)
+  return success or other_success
+end
+
+local function try_upgrade(entity, player)
+  if entity.type == "underground-belt" and entity.neighbours then
+    return try_upgrade_paired_entity(entity, entity.neighbours, player)
+  elseif entity.type == "pipe-to-ground" and entity.neighbours[1] and entity.neighbours[1][1] then
+    return try_upgrade_paired_entity(entity, entity.neighbours[1][1], player)
+  else
+    return try_upgrade_single_entity(entity, player)
   end
 end
 
