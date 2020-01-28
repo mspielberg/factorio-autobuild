@@ -1,7 +1,7 @@
 {
 	"name": "autobuild",
-	"version": "0.2.3",
-	"factorio_version": "0.17",
+	"version": "0.3.0",
+	"factorio_version": "0.18",
 	"title": "Autobuild",
 	"author": "Therax",
 	"homepage": "https://mods.factorio.com/mod/autobuild",

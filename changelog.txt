@@ -1,4 +1,12 @@
 ---------------------------------------------------------------------------------------------------
+Version: 0.3.0
+Date: 2020-01-28
+  Compatibility:
+    - Update to Factorio 0.18.
+  Bugfixes:
+    - Fix upgrades of the output side of underground belts.
+    - Upgrade both ends of an underground belt at the same time, even if out of reach.
+---------------------------------------------------------------------------------------------------
 Version: 0.2.3
 Date: 2019-12-21
   Bugfixes:
