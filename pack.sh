@@ -2,6 +2,15 @@
 
 ZIP='7z'
 
+function realpath() {
+    if [ -d "$1" ]
+    then
+        (cd "$1"; pwd -P)
+    else
+        "$(cd "$(dirname "$1")"; pwd -P)"/"$(basename "$1")"
+    fi
+}
+
 function canon_name() {
 	dir="$(realpath "$(dirname "$0")")"
 
@@ -18,7 +27,7 @@ function canon_name() {
 }
 
 
-moddir="$(realpath $(dirname "$0"))"
+moddir="$(realpath "$(dirname "$0")")"
 tmpdir=$(mktemp -d)
 canon_name="$(canon_name)"
 zipfile="$PWD/$canon_name.zip"
