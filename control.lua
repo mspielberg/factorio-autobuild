@@ -73,6 +73,7 @@ end
 
 local event_handlers = {
   on_entity_cloned = entity_built,
+  on_entity_died = entity_changed,
 
   on_lua_shortcut = function(event)
     if event.prototype_name ~= SHORTCUT_NAME then return end
