@@ -48,7 +48,7 @@ local function generator(dims)
       y = (1 + cy) * CHUNK_SIZE - 0.1,
     },
   }
-  
+
   local entities = game.surfaces[surface_name].find_entities(area)
 
   local filtered = annotate_entities(filter_entities(entities))
