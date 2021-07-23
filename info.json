@@ -4,7 +4,7 @@
 	"factorio_version": "1.1",
 	"title": "AutobuildEx",
 	"author": "Therax + 0.01 * Dimmimo",
-	"homepage": "https://mods.factorio.com/mod/autobuild-ex",
+	"homepage": "https://mods.factorio.com/mod/autobuildex",
 	"description": "Autobuild allows your character to automatically build nearby entity blueprint ghosts when standing still, and to deconstruct nearby entities.  A more efficient alternative to mods like Bluebuild. And shortcut to instantly build all.",
 	"dependencies": []
 }
