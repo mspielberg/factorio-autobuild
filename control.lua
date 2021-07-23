@@ -71,38 +71,6 @@ local function entity_built(event)
   end
 end
 
-local event_handlers = {
-  on_entity_cloned = entity_built,
-  on_entity_died = entity_changed,
-
-  on_lua_shortcut = function(event)
-    if event.prototype_name ~= SHORTCUT_NAME then return end
-    local player = game.players[event.player_index]
-    set_enabled(player, not player.is_shortcut_toggled(SHORTCUT_NAME))
-  end,
-
-  on_marked_for_deconstruction = entity_changed,
-  on_marked_for_upgrade = entity_changed,
-
-  on_player_changed_position = function(event)
-    local state = get_player_state(event.player_index)
-    state.motionless_updates = 0
-    state.build_candidates = nil
-    state.candidate_iter = nil
-  end,
-
-  script_raised_built = entity_built,
-
-  ["autobuild-toggle-construction"] = function(event)
-    local player = game.players[event.player_index]
-    set_enabled(player, not player.is_shortcut_toggled(SHORTCUT_NAME))
-  end,
-}
-
-for event_name, handler in pairs (event_handlers) do
-  script.on_event(defines.events[event_name] or event_name, handler)
-end
-
 script.on_event(defines.events.on_built_entity, entity_changed, {{ filter = "ghost" }})
 
 local function get_candidates(player, state)
@@ -298,6 +266,40 @@ local function player_autobuild(player, state)
   end
 end
 
+
+local function try_candidate_forced(entity, player)
+  if entity.valid then
+    if entity.to_be_deconstructed(player.force) then
+      return try_deconstruct(entity, player)
+    else
+      local entity_type = entity.type
+      if entity_type == "entity-ghost" or entity_type == "tile-ghost" then
+        return try_revive(entity, player)
+      elseif entity.to_be_upgraded() then
+        return try_upgrade(entity, player)
+      else
+        return false
+      end
+    end
+  end
+end
+
+
+local function player_autobuild_forced(player, state)
+  local candidates = get_candidates(player, state)
+
+  local candidate
+  for i = 1, 1000000 do -- while true :)
+    repeat
+      state.candidate_iter, candidate = next(candidates, state.candidate_iter)
+    until (not candidate) or try_candidate_forced(candidate, player)
+    if not candidate then
+      break
+    end
+  end
+end
+
+
 local god_controller = defines.controllers.god
 local character_controller = defines.controllers.character
 local function handle_player_update(player)
@@ -325,3 +327,47 @@ script.on_nth_tick(UPDATE_PERIOD, function(event)
     handle_player_update(player)
   end
 end)
+
+
+
+local event_handlers = {
+  on_entity_cloned = entity_built,
+  on_entity_died = entity_changed,
+
+  on_lua_shortcut = function(event)
+    if event.prototype_name ~= SHORTCUT_NAME then return end
+    local player = game.players[event.player_index]
+    set_enabled(player, not player.is_shortcut_toggled(SHORTCUT_NAME))
+  end,
+
+  on_marked_for_deconstruction = entity_changed,
+  on_marked_for_upgrade = entity_changed,
+
+  on_player_changed_position = function(event)
+    local state = get_player_state(event.player_index)
+    state.motionless_updates = 0
+    state.build_candidates = nil
+    state.candidate_iter = nil
+  end,
+
+  script_raised_built = entity_built,
+
+  ["autobuild-toggle-construction"] = function(event)
+    local player = game.players[event.player_index]
+    set_enabled(player, not player.is_shortcut_toggled(SHORTCUT_NAME))
+  end,
+  ["autobuild-instant"] = function(event)
+    local player = game.players[event.player_index]
+    local controller = player.controller_type
+    if controller ~= god_controller and controller ~= character_controller then
+      -- don't allow spectators or characters awaiting respawn to act
+      return
+    end
+    local state = get_player_state(player.index)
+    player_autobuild_forced(player, state)
+  end,
+}
+
+for event_name, handler in pairs (event_handlers) do
+  script.on_event(defines.events[event_name] or event_name, handler)
+end
