@@ -1,5 +1,5 @@
 ---------------------------------------------------------------------------------------------------
-Version: 0.4.1
+Version: 0.4.2
 Date: 2021-07-23
   Info:
     - Added shortcut to instantly build all (middle mouse button).
