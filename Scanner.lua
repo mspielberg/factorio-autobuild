@@ -1,5 +1,5 @@
-local CHUNK_SIZE = 32
-local RECT_RADIUS = 16
+local ActionTypes = require "ActionTypes"
+local Constants = require "Constants"
 
 local Scanner = {}
 
@@ -8,11 +8,7 @@ local function filter_entities(entities)
   local i = 1
   for _, entity in pairs(entities) do
     if entity.valid then
-      local name = entity.name
-      if name == "entity-ghost"
-      or name == "tile-ghost"
-      or entity.to_be_deconstructed(entity.force)
-      or entity.to_be_upgraded() then
+      if ActionTypes.get_action_type(entity) > ActionTypes.NONE then
         filtered[i] = entity
         i = i + 1
       end
@@ -24,11 +20,10 @@ end
 local function annotate_entities(entities)
   for i=1,#entities do
     local entity = entities[i]
-    local name = entity.name
     entities[i] = {
       entity = entity,
       position = entity.position,
-      is_ghost = name == "entity-ghost" or name == "tile-ghost",
+      action_type = ActionTypes.get_action_type(entity),
     }
   end
   return entities
@@ -40,12 +35,12 @@ local function generator(dims)
   local cy           = dims[3]
   local area = {
     left_top = {
-      x = cx * CHUNK_SIZE + 0.1,
-      y = cy * CHUNK_SIZE + 0.1,
+      x = cx * Constants.AREA_SIZE + 0.1,
+      y = cy * Constants.AREA_SIZE + 0.1,
     },
     right_bottom = {
-      x = (1 + cx) * CHUNK_SIZE - 0.1,
-      y = (1 + cy) * CHUNK_SIZE - 0.1,
+      x = (1 + cx) * Constants.AREA_SIZE - 0.1,
+      y = (1 + cy) * Constants.AREA_SIZE - 0.1,
     },
   }
 
@@ -77,9 +72,9 @@ end
 local ceil = math.ceil
 local floor = math.floor
 local function chunk_spiral(position, radius)
-  local x1 = floor(position.x / CHUNK_SIZE)
-  local y1 = floor(position.y / CHUNK_SIZE)
-  local s = spiral(ceil(radius / CHUNK_SIZE))
+  local x1 = floor(position.x / Constants.AREA_SIZE)
+  local y1 = floor(position.y / Constants.AREA_SIZE)
+  local s = spiral(ceil(radius / Constants.AREA_SIZE))
   return function()
     local x, y = s()
     if not x then return end
@@ -112,11 +107,7 @@ local function filter_cache_entries(entries, max_distance)
   local i = 1
   for _, entry in pairs(entries) do
     if entry.distance <= max_distance then
-      local entity = entry.entity
-      if entity.valid
-      and (entry.is_ghost
-           or entity.to_be_deconstructed(entity.force)
-           or entity.to_be_upgraded()) then
+      if entry.entity.valid and entry.action_type > ActionTypes.NONE then
         filtered[i] = entry
         i = i + 1
       end
@@ -126,32 +117,47 @@ local function filter_cache_entries(entries, max_distance)
 end
 
 local function by_distance(entry1, entry2)
-  return entry1.distance < entry2.distance
+  if entry1.distance < entry2.distance then
+    return -1
+  elseif entry1.distance > entry2.distance then
+    return 1
+  end
+  return 0
 end
 
-local function extract_entities(entries)
-  for i=1,#entries do
-    entries[i] = entries[i].entity
+local function by_action_type(entry1, entry2)
+  if entry1.action_type < entry2.action_type then
+    return -1
+  elseif entry1.action_type > entry2.action_type then
+    return 1
   end
-  return entries
+  return 0
+end
+
+local function sort_order(entry1, entry2) 
+  local by_action_type_result = by_action_type(entry1, entry2)
+  if by_action_type_result == 0 then
+    return by_distance(entry1, entry2) < 0
+  end
+  return by_action_type_result < 0
 end
 
 local function find_candidates(cache, surface, position, distance, max)
-  local out = {}
+  local entries = {}
   local iter = chunk_spiral(position, distance)
   local i = 1
   for cx, cy in iter do
-    local entries = cache:get{surface, cx, cy}
-    annotate_distances(entries, position)
-    local filtered = filter_cache_entries(entries, distance)
+    local unfiltered = cache:get{surface, cx, cy}
+    unfiltered = annotate_distances(unfiltered, position)
+    local filtered = filter_cache_entries(unfiltered, distance)
     for _, entry in pairs(filtered) do
-      out[i] = entry
+      entries[i] = entry
       i = i + 1
     end
     if i > max then break end
   end
-  table.sort(out, by_distance)
-  return extract_entities(out)
+  table.sort(entries, sort_order)
+  return entries
 end
 
 local meta = { __index = Scanner }

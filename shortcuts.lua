@@ -1,11 +1,11 @@
 data:extend{
   {
     type = "shortcut",
-    name = "autobuild-toggle-construction",
+    name = "autobuild-shortcut-toggle-construction",
     order = "c[toggles]-c[autobuild]",
     action = "lua",
     toggleable = true,
-    localised_name = {"autobuild-shortcut.toggle-autobuild"},
+    localised_name = {"autobuild-shortcut.autobuild-shortcut-toggle-construction"},
     icon =
     {
       filename = "__autobuild__/graphics/wrench-x32.png",

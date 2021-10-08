@@ -1,4 +1,11 @@
 ---------------------------------------------------------------------------------------------------
+Version: 0.4.1
+Date: 2021-10-08
+  Changes:
+    - Add building action rate settings per user
+    - Add shortcut to enable/disable automatic tile building
+    - Priotize in this order: deconstruction, entity building, upgrading and tile building
+---------------------------------------------------------------------------------------------------
 Version: 0.4.0
 Date: 2020-11-30
   Info:
