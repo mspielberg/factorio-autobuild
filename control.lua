@@ -1,12 +1,7 @@
 local NDCache = require "NDCache"
 local Scanner = require "Scanner"
-
-local CHUNK_SIZE = 32
-local MAX_DISTANCE = 128
-local MAX_CANDIDATES = 100
-local SHORTCUT_NAME = "autobuild-toggle-construction"
-local UPDATE_PERIOD = 10
-local UPDATE_THRESHOLD = 4
+local ActionTypes = require "ActionTypes"
+local Constants = require "Constants"
 
 local cache = NDCache.new(Scanner.generator)
 local player_state
@@ -15,6 +10,8 @@ local function get_player_state(player_index)
   local state = player_state[player_index]
   if not state then
     state = {}
+    state.enable_tiles = true --default enabled
+    state.action_rate = settings.get_player_settings(event.player_index)[event.setting].value
     player_state[player_index] = state
   end
   return state
@@ -32,15 +29,18 @@ end
 script.on_init(on_init)
 
 local function on_configuration_changed()
-  global.ghosts = nil
+  global.player_state = {}
 end
 script.on_configuration_changed(on_configuration_changed)
 
-local function set_enabled(player, enable)
-  player.set_shortcut_toggled(SHORTCUT_NAME, enable)
+local function toggle_enabled_construction(player)
   local state = get_player_state(player.index)
+  local enable = not state.enable_construction
+
   state.enable_construction = enable
   state.enable_deconstruction = enable
+
+  player.set_shortcut_toggled("autobuild-shortcut-toggle-construction", enable)
 
   if enable then
     player.print{"autobuild-message.construction-enabled"}
@@ -49,13 +49,26 @@ local function set_enabled(player, enable)
   end
 end
 
+local function toggle_enabled_tiles(player)
+  local state = get_player_state(player.index)
+  local enable = not state.enable_tiles
+  
+  state.enable_tiles = enable
+
+  if enable then
+    player.print{"autobuild-message.tiles-enabled"}
+  else
+    player.print{"autobuild-message.tiles-disabled"}
+  end
+end
+
 local floor = math.floor
 local function entity_chunk_key(entity)
   local position = entity.position
   return {
     entity.surface.name,
-    floor(position.x / CHUNK_SIZE),
-    floor(position.y / CHUNK_SIZE),
+    floor(position.x / Constants.AREA_SIZE),
+    floor(position.y / Constants.AREA_SIZE),
   }
 end
 
@@ -65,8 +78,9 @@ end
 
 local function entity_built(event)
   local entity = event.entity or event.destination
-  local name = entity.name
-  if name == "entity-ghost" or name == "tile-ghost" then
+
+  local action_type = ActionTypes.get_action_type(entity)
+  if action_type == ActionTypes.ENTITY_GHOST or action_type == ActionTypes.TILE_GHOST then
     cache:invalidate(entity_chunk_key(entity))
   end
 end
@@ -76,9 +90,9 @@ local event_handlers = {
   on_entity_died = entity_changed,
 
   on_lua_shortcut = function(event)
-    if event.prototype_name ~= SHORTCUT_NAME then return end
+    if event.prototype_name ~= "autobuild-shortcut-toggle-construction" then return end
     local player = game.players[event.player_index]
-    set_enabled(player, not player.is_shortcut_toggled(SHORTCUT_NAME))
+    toggle_enabled_construction(player)
   end,
 
   on_marked_for_deconstruction = entity_changed,
@@ -93,9 +107,14 @@ local event_handlers = {
 
   script_raised_built = entity_built,
 
-  ["autobuild-toggle-construction"] = function(event)
+  ["autobuild-custominput-toggle-construction"] = function(event)
     local player = game.players[event.player_index]
-    set_enabled(player, not player.is_shortcut_toggled(SHORTCUT_NAME))
+    toggle_enabled_construction(player)
+  end,
+
+  ["autobuild-custominput-toggle-tiles"] = function(event)
+    local player = game.players[event.player_index]
+    toggle_enabled_tiles(player)
   end,
 }
 
@@ -108,13 +127,13 @@ script.on_event(defines.events.on_built_entity, entity_changed, {{ filter = "gho
 local function get_candidates(player, state)
   local candidates = state.build_candidates
   if not candidates then
-    local build_distance = math.min(player.build_distance + 0.5, MAX_DISTANCE)
+    local build_distance = math.min(player.build_distance + 0.5, Constants.MAX_DISTANCE)
     candidates = Scanner.find_candidates(
       cache,
       player.surface.name,
       player.position,
       build_distance,
-      MAX_CANDIDATES)
+      Constants.MAX_CANDIDATES)
     state.build_candidates = candidates
     state.candidate_iter = nil
   end
@@ -164,16 +183,6 @@ end
 local function try_revive_with_stack(ghost, player, stack_to_place)
   if player.get_item_count(stack_to_place.name) < stack_to_place.count then
     return false
-  end
-
-  local is_tile = ghost.name == "tile-ghost"
-  local old_tile
-  if is_tile then
-    local position = ghost.position
-    old_tile = {
-      old_tile = ghost.surface.get_tile(position.x, position.y).prototype,
-      position = position,
-    }
   end
 
   local items, entity, request_proxy = ghost.revive{
@@ -252,49 +261,70 @@ local function try_upgrade(entity, player)
   end
 end
 
-local function try_deconstruct(entity, player)
-  if entity.name == "deconstructible-tile-proxy" then
-    local position = entity.position
-    return player.mine_tile(entity.surface.get_tile(position.x, position.y))
-  else
-    return player.mine_entity(entity)
-  end
+local function try_deconstruct_tile(entity, player)
+  local position = entity.position
+  return player.mine_tile(entity.surface.get_tile(position.x, position.y))
 end
 
-local function try_candidate(entity, player)
+local function try_deconstruct_entity(entity, player)
+  return player.mine_entity(entity)
+end
+
+local function try_candidate(entry, player)
+  if not entry or not entry.action_type or entry.action_type <= ActionTypes.NONE then
+    return false
+  end
+
+  local entity = entry.entity
+  if not entity or not entity.valid then
+    return false
+  end
+
   local state = get_player_state(player.index)
-  if entity.valid then
-    if state.enable_deconstruction and entity.to_be_deconstructed(player.force) then
-      return try_deconstruct(entity, player)
-    elseif state.enable_construction then
-      local entity_type = entity.type
-      if entity_type == "entity-ghost" or entity_type == "tile-ghost" then
-        return try_revive(entity, player)
-      elseif entity.to_be_upgraded() then
-        return try_upgrade(entity, player)
-      else
-        return false
-      end
+
+  if state.enable_deconstruction then
+    if entry.action_type == ActionTypes.DECONSTRUCT then
+      return try_deconstruct_entity(entity, player)
+    elseif entry.action_type == ActionTypes.DECONSTRUCT_TILE then
+      return try_deconstruct_tile(entity, player)
     end
   end
+
+  if state.enable_construction then
+    if entry.action_type == ActionTypes.ENTITY_GHOST then
+      return try_revive(entity, player)
+    elseif state.enable_tiles and entry.action_type == ActionTypes.TILE_GHOST then
+      return try_revive(entity, player)
+    elseif entry.action_type == ActionTypes.UPGRADE then
+      return try_upgrade(entity, player)
+    end
+  end
+
+  return false
 end
 
 local function player_autobuild(player, state)
   local candidates = get_candidates(player, state)
 
   local candidate
+  local remainingActions = state.action_rate or 2 -- default 2
   repeat
     state.candidate_iter, candidate = next(candidates, state.candidate_iter)
-  until (not candidate) or try_candidate(candidate, player)
+    if candidate then
+      if try_candidate(candidate, player) then
+        remainingActions = remainingActions - 1
+      end
+    end
+  until (not candidate) or (remainingActions == 0)
 
   if not candidate then
-    if not state.one_success then
+    if not state.last_success then
       state.motionless_updates = -10
     end
     state.build_candidates = nil
-    state.one_success = nil
+    state.last_success = nil
   else
-    state.one_success = true
+    state.last_success = true
   end
 end
 
@@ -312,7 +342,7 @@ local function handle_player_update(player)
   if player.in_combat then return end
 
   local updates = state.motionless_updates or 0
-  if updates < UPDATE_THRESHOLD then
+  if updates < Constants.UPDATE_THRESHOLD then
     state.motionless_updates = updates + 1
     return
   end
@@ -320,8 +350,15 @@ local function handle_player_update(player)
   player_autobuild(player, state)
 end
 
-script.on_nth_tick(UPDATE_PERIOD, function(event)
+script.on_nth_tick(Constants.UPDATE_PERIOD, function(event)
   for _, player in pairs(game.connected_players) do
     handle_player_update(player)
+  end
+end)
+
+script.on_event(defines.events.on_runtime_mod_setting_changed, function(event)
+  if event.setting ~= "autobuild-action-rate" then
+    local state = get_player_state(event.player_index)
+    state.action_rate = settings.get_player_settings(event.player_index)[event.setting].value
   end
 end)
