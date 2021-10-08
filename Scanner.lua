@@ -1,5 +1,6 @@
 local ActionTypes = require "ActionTypes"
 local Constants = require "Constants"
+local HelpFunctions = require "HelpFunctions"
 
 local Scanner = {}
 
@@ -82,22 +83,10 @@ local function chunk_spiral(position, radius)
   end
 end
 
-
-local abs = math.abs
-local function chebyshev_distance(p1, p2)
-  local dx = abs(p1.x - p2.x)
-  local dy = abs(p1.y - p2.y)
-  if dx > dy then
-    return dx + dy / 1000
-  else
-    return dy + dx / 1000
-  end
-end
-
 local function annotate_distances(entries, position)
   for i=1,#entries do
     local entry = entries[i]
-    entry.distance = chebyshev_distance(entry.position, position)
+    entry.distance = HelpFunctions.chebyshev_distance(entry.position, position)
   end
   return entries
 end
