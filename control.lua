@@ -2,16 +2,21 @@ local NDCache = require "NDCache"
 local Scanner = require "Scanner"
 local ActionTypes = require "ActionTypes"
 local Constants = require "Constants"
+local HelpFunctions = require "HelpFunctions"
 
 local cache = NDCache.new(Scanner.generator)
 local player_state
+local update_period = settings.global["autobuild-update-period"]
 
 local function get_player_state(player_index)
   local state = player_state[player_index]
   if not state then
     state = {}
     state.enable_tiles = true --default enabled
-    state.action_rate = settings.get_player_settings(event.player_index)[event.setting].value
+    state.action_rate = settings.get_player_settings(player_index)["autobuild-action-rate"].value
+    state.update_threshold = settings.get_player_settings(player_index)["autobuild-update-threshold"].value
+    state.idle_rebuild = settings.get_player_settings(player_index)["autobuild-idle-rebuild"].value
+
     player_state[player_index] = state
   end
   return state
@@ -30,6 +35,7 @@ script.on_init(on_init)
 
 local function on_configuration_changed()
   global.player_state = {}
+  on_load()
 end
 script.on_configuration_changed(on_configuration_changed)
 
@@ -39,6 +45,14 @@ local function toggle_enabled_construction(player)
 
   state.enable_construction = enable
   state.enable_deconstruction = enable
+  
+  if enable then
+    state.surface_name = player.surface.name
+    state.position = player.position
+    state.build_distance = player.build_distance
+  end
+
+  state.building_enabled = enable
 
   player.set_shortcut_toggled("autobuild-shortcut-toggle-construction", enable)
 
@@ -101,8 +115,6 @@ local event_handlers = {
   on_player_changed_position = function(event)
     local state = get_player_state(event.player_index)
     state.motionless_updates = 0
-    state.build_candidates = nil
-    state.candidate_iter = nil
   end,
 
   script_raised_built = entity_built,
@@ -123,22 +135,6 @@ for event_name, handler in pairs (event_handlers) do
 end
 
 script.on_event(defines.events.on_built_entity, entity_changed, {{ filter = "ghost" }})
-
-local function get_candidates(player, state)
-  local candidates = state.build_candidates
-  if not candidates then
-    local build_distance = math.min(player.build_distance + 0.5, Constants.MAX_DISTANCE)
-    candidates = Scanner.find_candidates(
-      cache,
-      player.surface.name,
-      player.position,
-      build_distance,
-      Constants.MAX_CANDIDATES)
-    state.build_candidates = candidates
-    state.candidate_iter = nil
-  end
-  return candidates
-end
 
 local to_place_cache = {}
 local function to_place(entity_name)
@@ -303,11 +299,38 @@ local function try_candidate(entry, player)
   return false
 end
 
-local function player_autobuild(player, state)
-  local candidates = get_candidates(player, state)
+local function get_candidates(state)
+  
+  local candidates = state.build_candidates
+  if candidates then
+    return candidates
+  end
 
-  local candidate
-  local remainingActions = state.action_rate or 2 -- default 2
+  if not state.surface_name then return nil end
+  if not state.position then return nil end
+  if not state.build_distance then return nil end
+
+  local build_distance = math.min(state.build_distance + 0.5, Constants.MAX_DISTANCE)
+  candidates = Scanner.find_candidates(
+    cache,
+    state.surface_name,
+    state.position,
+    build_distance,
+    Constants.MAX_CANDIDATES)
+  state.build_candidates = candidates
+  state.candidate_iter = nil
+  
+  return candidates
+end
+
+local function do_autobuild(state, player)
+  if not state.building_enabled then return end
+
+  local candidates = get_candidates(state)
+  if not candidates then return end
+
+  local candidate = nil
+  local remainingActions = state.action_rate
   repeat
     state.candidate_iter, candidate = next(candidates, state.candidate_iter)
     if candidate then
@@ -318,13 +341,7 @@ local function player_autobuild(player, state)
   until (not candidate) or (remainingActions == 0)
 
   if not candidate then
-    if not state.last_success then
-      state.motionless_updates = -10
-    end
-    state.build_candidates = nil
-    state.last_success = nil
-  else
-    state.last_success = true
+    state.building_enabled = false
   end
 end
 
@@ -341,24 +358,59 @@ local function handle_player_update(player)
   if not state.enable_construction and not state.enable_destruction then return end
   if player.in_combat then return end
 
-  local updates = state.motionless_updates or 0
-  if updates < Constants.UPDATE_THRESHOLD then
-    state.motionless_updates = updates + 1
+  do_autobuild(state, player)
+
+  state.motionless_updates = (state.motionless_updates or 0) + 1
+  if state.motionless_updates <= state.update_threshold then
     return
   end
+  
+  local distance = HelpFunctions.chebyshev_distance(state.position, player.position)
+  if state.building_enabled then
+    if distance <= 1 then return end
+  else
+    if distance <= 4 and (state.motionless_updates % state.idle_rebuild) > 0 then return end
+  end
 
-  player_autobuild(player, state)
+  -- player position changed
+  -- or once every state.idle_rebuild cycles
+  state.building_enabled = false
+
+  state.build_candidates = nil
+  state.candidate_iter = nil
+
+  state.surface_name = player.surface.name
+  state.position = player.position
+  state.build_distance = player.build_distance
+
+  state.building_enabled = true
 end
 
-script.on_nth_tick(Constants.UPDATE_PERIOD, function(event)
+function update_cycle(event)
   for _, player in pairs(game.connected_players) do
     handle_player_update(player)
   end
-end)
+end
+
+script.on_nth_tick(update_period, update_cycle)
 
 script.on_event(defines.events.on_runtime_mod_setting_changed, function(event)
-  if event.setting ~= "autobuild-action-rate" then
+  if event.setting == "autobuild-update-period" then
+    script.on_nth_tick(update_period, nil)
+    update_period = settings.global[event.setting]
+    script.on_nth_tick(update_period, update_cycle)
+
+  elseif event.setting == "autobuild-action-rate" then
     local state = get_player_state(event.player_index)
     state.action_rate = settings.get_player_settings(event.player_index)[event.setting].value
+
+  elseif event.setting == "autobuild-update-threshold" then
+    local state = get_player_state(event.player_index)
+    state.update_threshold = settings.get_player_settings(event.player_index)[event.setting].value
+
+  elseif event.setting == "autobuild-idle-rebuild" then
+    local state = get_player_state(event.player_index)
+    state.idle_rebuild = settings.get_player_settings(event.player_index)[event.setting].value
   end
+
 end)
