@@ -6,16 +6,25 @@ local HelpFunctions = require "HelpFunctions"
 
 local cache = NDCache.new(Scanner.generator)
 local player_state
-local update_period = settings.global["autobuild-update-period"]
+local cycle_length_in_ticks = settings.global["autobuild-cycle-length-in-ticks"].value
+local log_level = settings.global["autobuild-log-level"].value
+
+local function log_it(sev, text)
+  if log_level <= 0 then return end
+  if sev <= log_level then
+    game.print(text)
+  end
+end
 
 local function get_player_state(player_index)
   local state = player_state[player_index]
   if not state then
     state = {}
     state.enable_tiles = true --default enabled
-    state.action_rate = settings.get_player_settings(player_index)["autobuild-action-rate"].value
-    state.update_threshold = settings.get_player_settings(player_index)["autobuild-update-threshold"].value
-    state.idle_rebuild = settings.get_player_settings(player_index)["autobuild-idle-rebuild"].value
+    state.actions_per_cycle = settings.get_player_settings(player_index)["autobuild-actions-per-cycle"].value
+    state.move_latency = settings.get_player_settings(player_index)["autobuild-move-latency"].value
+    state.move_threshold = settings.get_player_settings(player_index)["autobuild-move-threshold"].value
+    state.idle_cycles_before_recheck = settings.get_player_settings(player_index)["autobuild-idle-cycles-before-recheck"].value
 
     player_state[player_index] = state
   end
@@ -44,12 +53,18 @@ local function toggle_enabled_construction(player)
   local enable = not state.enable_construction
 
   state.enable_construction = enable
-  state.enable_deconstruction = enable
   
+  state.build_candidates = nil
+  state.candidate_iter = nil
+
   if enable then
     state.surface_name = player.surface.name
     state.position = player.position
     state.build_distance = player.build_distance
+  else
+    state.surface_name = nil
+    state.position = nil
+    state.build_distance = nil
   end
 
   state.building_enabled = enable
@@ -114,7 +129,7 @@ local event_handlers = {
 
   on_player_changed_position = function(event)
     local state = get_player_state(event.player_index)
-    state.motionless_updates = 0
+    state.motionless_cycles = 0
   end,
 
   script_raised_built = entity_built,
@@ -222,11 +237,17 @@ local function try_upgrade_with_stack(entity, target_name, player, stack_to_plac
   return false
 end
 
-local function try_revive(entity, player)
+local function try_revive_entity(entity, player, state)
   local stacks_to_place = to_place(entity.ghost_name)
   for _, stack_to_place in pairs(stacks_to_place) do
     local success = try_revive_with_stack(entity, player, stack_to_place)
     if success then return success end
+  end
+end
+
+local function try_revive_tile(entity, player, state)
+  if state.enable_tiles then
+    return try_revive_entity(entity, player, state)
   end
 end
 
@@ -247,7 +268,7 @@ local function try_upgrade_paired_entity(entity, other_entity, player)
   return success or other_success
 end
 
-local function try_upgrade(entity, player)
+local function try_upgrade(entity, player, state)
   if entity.type == "underground-belt" and entity.neighbours then
     return try_upgrade_paired_entity(entity, entity.neighbours, player)
   elseif entity.type == "pipe-to-ground" and entity.neighbours[1] and entity.neighbours[1][1] then
@@ -257,16 +278,25 @@ local function try_upgrade(entity, player)
   end
 end
 
-local function try_deconstruct_tile(entity, player)
+local function try_deconstruct_tile(entity, player, state)
   local position = entity.position
   return player.mine_tile(entity.surface.get_tile(position.x, position.y))
 end
 
-local function try_deconstruct_entity(entity, player)
+local function try_deconstruct_entity(entity, player, state)
   return player.mine_entity(entity)
 end
 
-local function try_candidate(entry, player)
+local build_actions = 
+{
+  [ActionTypes.DECONSTRUCT] = try_deconstruct_entity,
+  [ActionTypes.DECONSTRUCT_TILE] = try_deconstruct_tile,
+  [ActionTypes.ENTITY_GHOST] = try_revive_entity,
+  [ActionTypes.TILE_GHOST] = try_revive_tile,
+  [ActionTypes.UPGRADE] = try_upgrade,
+}
+
+local function try_candidate(entry, player, state)
   if not entry or not entry.action_type or entry.action_type <= ActionTypes.NONE then
     return false
   end
@@ -276,24 +306,9 @@ local function try_candidate(entry, player)
     return false
   end
 
-  local state = get_player_state(player.index)
-
-  if state.enable_deconstruction then
-    if entry.action_type == ActionTypes.DECONSTRUCT then
-      return try_deconstruct_entity(entity, player)
-    elseif entry.action_type == ActionTypes.DECONSTRUCT_TILE then
-      return try_deconstruct_tile(entity, player)
-    end
-  end
-
-  if state.enable_construction then
-    if entry.action_type == ActionTypes.ENTITY_GHOST then
-      return try_revive(entity, player)
-    elseif state.enable_tiles and entry.action_type == ActionTypes.TILE_GHOST then
-      return try_revive(entity, player)
-    elseif entry.action_type == ActionTypes.UPGRADE then
-      return try_upgrade(entity, player)
-    end
+  local build_action = build_actions[entry.action_type]
+  if build_action then 
+    return build_action(entity, player, state)
   end
 
   return false
@@ -324,18 +339,18 @@ local function get_candidates(state)
 end
 
 local function do_autobuild(state, player)
-  if not state.building_enabled then return end
-
   local candidates = get_candidates(state)
   if not candidates then return end
 
   local candidate = nil
-  local remainingActions = state.action_rate
+  local remainingActions = state.actions_per_cycle
   repeat
     state.candidate_iter, candidate = next(candidates, state.candidate_iter)
     if candidate then
-      if try_candidate(candidate, player) then
+      if try_candidate(candidate, player, state) then
         remainingActions = remainingActions - 1
+        state.last_successful_build_cycle = state.current_cycle
+        log_it(5, "cycle: "..state.current_cycle..": build/deconstruced/upgraded candidate: type: "..candidate.action_type.." on pos " .. candidate.position.x .."/"..candidate.position.y)
       end
     end
   until (not candidate) or (remainingActions == 0)
@@ -345,45 +360,92 @@ local function do_autobuild(state, player)
   end
 end
 
+local function needs_rebuild(player, state)
+  -- increment current_cycle
+  local current_cycle = (state.current_cycle or 0) + 1
+  state.current_cycle = current_cycle
+
+  -- increment motionless cycle, which gets reset, when player moves.
+  local motionless_cycles = (state.motionless_cycles or 0) + 1
+  state.motionless_cycles = motionless_cycles
+  
+  -- always recheck once every "idle_cycles_before_recheck" cycles, regardless of other conditions
+  local is_recheck_cycle = (motionless_cycles % state.idle_cycles_before_recheck) == 0
+  if not is_recheck_cycle then
+    
+    local cycles_after = motionless_cycles - state.move_latency
+    -- wait the amount of move_latency cycles after moving
+    if cycles_after <= 0 then 
+      log_it(4, "cycle: "..current_cycle..": no recheck: below move_latency")
+      return false --no recheck
+    end
+
+    if not state.building_enabled then
+      
+      -- player has not been moved recently
+      if cycles_after > 1 then 
+        log_it(3, "cycle: "..current_cycle..": no recheck: not moved recently")
+        return false --no recheck
+      end 
+      
+      -- if 3*idle_cycles_before_recheck in ticks has been past, without any building action.
+      if ((state.last_successful_build_cycle or current_cycle) + 3*state.idle_cycles_before_recheck) < current_cycle then 
+        log_it(3, "cycle: "..current_cycle..": no recheck: not built recently")
+        return false--no recheck
+      end
+    end
+
+    -- player has not been moved more than the amount of "move_threshold" tiles
+    if state.move_threshold > 0 then
+      local distance = HelpFunctions.chebyshev_distance(state.position, player.position)
+      if distance <= state.move_threshold then 
+        log_it(4, "cycle: "..current_cycle..": no recheck: not moved far enough")
+        return false--no recheck
+      end
+    end
+
+  end
+  
+  if is_recheck_cycle then
+    log_it(3, "cycle: "..current_cycle..": recheck regular cycle")
+  else
+    log_it(4, "cycle: "..current_cycle..": recheck normal")
+  end
+
+  return true
+end
+
 local god_controller = defines.controllers.god
 local character_controller = defines.controllers.character
 local function handle_player_update(player)
+  local state = get_player_state(player.index)
+  if not state.enable_construction then return end
+
   local controller = player.controller_type
   if controller ~= god_controller and controller ~= character_controller then
     -- don't allow spectators or characters awaiting respawn to act
     return
   end
 
-  local state = get_player_state(player.index)
-  if not state.enable_construction and not state.enable_destruction then return end
   if player.in_combat then return end
 
-  do_autobuild(state, player)
+  if needs_rebuild(player, state) then
+    -- player position changed
+    -- or once after "state.idle_cycles_before_recheck" cycles
+    state.build_candidates = nil
+    state.candidate_iter = nil
 
-  state.motionless_updates = (state.motionless_updates or 0) + 1
-  if state.motionless_updates <= state.update_threshold then
-    return
+    state.surface_name = player.surface.name
+    state.position = player.position
+    state.build_distance = player.build_distance
+
+    state.building_enabled = true
   end
-  
-  local distance = HelpFunctions.chebyshev_distance(state.position, player.position)
+
+  -- try to build on last position, if not moved
   if state.building_enabled then
-    if distance <= 1 then return end
-  else
-    if distance <= 4 and (state.motionless_updates % state.idle_rebuild) > 0 then return end
-  end
-
-  -- player position changed
-  -- or once every state.idle_rebuild cycles
-  state.building_enabled = false
-
-  state.build_candidates = nil
-  state.candidate_iter = nil
-
-  state.surface_name = player.surface.name
-  state.position = player.position
-  state.build_distance = player.build_distance
-
-  state.building_enabled = true
+    do_autobuild(state, player)
+  end 
 end
 
 function update_cycle(event)
@@ -392,25 +454,29 @@ function update_cycle(event)
   end
 end
 
-script.on_nth_tick(update_period, update_cycle)
+script.on_nth_tick(cycle_length_in_ticks, update_cycle)
 
 script.on_event(defines.events.on_runtime_mod_setting_changed, function(event)
-  if event.setting == "autobuild-update-period" then
-    script.on_nth_tick(update_period, nil)
-    update_period = settings.global[event.setting]
-    script.on_nth_tick(update_period, update_cycle)
+  local state = get_player_state(event.player_index)
 
-  elseif event.setting == "autobuild-action-rate" then
-    local state = get_player_state(event.player_index)
-    state.action_rate = settings.get_player_settings(event.player_index)[event.setting].value
+  if event.setting == "autobuild-cycle-length-in-ticks" then
+    --unregister with old value
+    script.on_nth_tick(cycle_length_in_ticks, nil)
+    cycle_length_in_ticks = settings.global[event.setting].value
+    --register with new value
+    script.on_nth_tick(cycle_length_in_ticks, update_cycle)
+  
+  elseif event.setting == "autobuild-log-level" then
+    log_level = settings.global[event.setting].value
 
-  elseif event.setting == "autobuild-update-threshold" then
-    local state = get_player_state(event.player_index)
-    state.update_threshold = settings.get_player_settings(event.player_index)[event.setting].value
-
-  elseif event.setting == "autobuild-idle-rebuild" then
-    local state = get_player_state(event.player_index)
-    state.idle_rebuild = settings.get_player_settings(event.player_index)[event.setting].value
+  elseif event.setting == "autobuild-actions-per-cycle" then
+    state.actions_per_cycle = settings.get_player_settings(event.player_index)[event.setting].value
+  elseif event.setting == "autobuild-move-latency" then
+    state.move_latency = settings.get_player_settings(event.player_index)[event.setting].value
+  elseif event.setting == "autobuild-move-threshold" then
+    state.move_threshold = settings.get_player_settings(event.player_index)[event.setting].value
+  elseif event.setting == "autobuild-idle-cycles-before-recheck" then
+    state.idle_cycles_before_recheck = settings.get_player_settings(event.player_index)[event.setting].value
   end
 
 end)
