@@ -31,6 +31,21 @@ local function get_player_state(player_index)
   return state
 end
 
+local function create_visual_area(player)
+  local radius = player.build_distance + 0.5
+
+  return rendering.draw_rectangle({
+    surface = player.surface,
+    filled = true,
+    draw_on_ground = true,
+    color = { r=0.1, g=0.1, b=0, a=0.1 },
+    left_top = player.character,
+    left_top_offset = { -radius, -radius },
+    right_bottom = player.character,
+    right_bottom_offset = { radius, radius }
+  })
+end
+
 local function on_load()
   player_state = global.player_state
 end
@@ -61,10 +76,15 @@ local function toggle_enabled_construction(player)
     state.surface_name = player.surface.name
     state.position = player.position
     state.build_distance = player.build_distance
+    
+    state.visual_area_id = create_visual_area(player)
   else
     state.surface_name = nil
     state.position = nil
     state.build_distance = nil
+
+    rendering.destroy(state.visual_area_id)
+    state.visual_area_id = nil
   end
 
   state.building_enabled = enable
