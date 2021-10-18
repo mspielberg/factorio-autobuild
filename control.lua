@@ -25,20 +25,29 @@ local function get_player_state(player_index)
     state.move_latency = settings.get_player_settings(player_index)["autobuild-move-latency"].value
     state.move_threshold = settings.get_player_settings(player_index)["autobuild-move-threshold"].value
     state.idle_cycles_before_recheck = settings.get_player_settings(player_index)["autobuild-idle-cycles-before-recheck"].value
+    state.visual_area_opacity = settings.get_player_settings(player_index)["autobuild-visual-area-opacity"].value
 
     player_state[player_index] = state
   end
   return state
 end
 
-local function create_visual_area(player)
-  local radius = player.build_distance + 0.5
+local function change_visual_area(player, state, opacity)
+  
+  if state.visual_area_id then
+    rendering.destroy(state.visual_area_id)
+    state.visual_area_id = nil
+  end
 
-  return rendering.draw_rectangle({
+  if not opacity or opacity <= 0 then return end
+
+  local radius = state.build_distance + 0.5
+
+  state.visual_area_id = rendering.draw_rectangle({
     surface = player.surface,
     filled = true,
     draw_on_ground = true,
-    color = { r=0.1, g=0.1, b=0, a=0.1 },
+    color = { r=(opacity/200), g=(opacity/200), b=0, a=(opacity/200) },
     left_top = player.character,
     left_top_offset = { -radius, -radius },
     right_bottom = player.character,
@@ -77,14 +86,13 @@ local function toggle_enabled_construction(player)
     state.position = player.position
     state.build_distance = player.build_distance
     
-    state.visual_area_id = create_visual_area(player)
+    change_visual_area(player, state, state.visual_area_opacity)
   else
     state.surface_name = nil
     state.position = nil
     state.build_distance = nil
 
-    rendering.destroy(state.visual_area_id)
-    state.visual_area_id = nil
+    change_visual_area(nil, state, nil)
   end
 
   state.building_enabled = enable
@@ -497,6 +505,10 @@ script.on_event(defines.events.on_runtime_mod_setting_changed, function(event)
     state.move_threshold = settings.get_player_settings(event.player_index)[event.setting].value
   elseif event.setting == "autobuild-idle-cycles-before-recheck" then
     state.idle_cycles_before_recheck = settings.get_player_settings(event.player_index)[event.setting].value
+  elseif event.setting == "autobuild-visual-area-opacity" then
+    state.visual_area_opacity = settings.get_player_settings(event.player_index)[event.setting].value
+    local player = game.players[event.player_index]
+    change_visual_area(player, state, state.visual_area_opacity)
   end
 
 end)

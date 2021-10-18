@@ -39,7 +39,7 @@ table.insert(settings,
         name = "autobuild-move-threshold",
         order = "d",
         setting_type = "runtime-per-user",
-        default_value = 0,
+        default_value = 1,
         minimum_value = 0,
         maximum_value = 100,
     })
@@ -52,6 +52,17 @@ table.insert(settings,
         setting_type = "runtime-per-user",
         default_value = 12,
         minimum_value = 1,
+        maximum_value = 100,
+    })
+
+table.insert(settings,
+    {
+        type = "int-setting",
+        name = "autobuild-visual-area-opacity",
+        order = "f",
+        setting_type = "runtime-per-user",
+        default_value = 20,
+        minimum_value = 0,
         maximum_value = 100,
     })
 
