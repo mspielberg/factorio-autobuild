@@ -33,4 +33,20 @@ function ActionTypes.get_action_type(entity)
   return ActionTypes.NONE
 end
 
+function ActionTypes.get_action_verb(action_type)
+  if action_type == ActionTypes.NONE then
+    return ""
+  elseif action_type == ActionTypes.ENTITY_GHOST then
+    return "built entity"
+  elseif action_type == ActionTypes.TILE_GHOST then
+    return "built tile"
+  elseif action_type == ActionTypes.DECONSTRUCT then
+    return "deconstructed entity"
+  elseif action_type == ActionTypes.DECONSTRUCT_TILE then
+    return "deconstructed tile"
+  elseif action_type == ActionTypes.UPGRADE then
+    return "upgraded entity"
+  end
+end
+
 return ActionTypes

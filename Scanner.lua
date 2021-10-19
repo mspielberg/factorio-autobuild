@@ -48,7 +48,7 @@ local function generator(dims)
   local entities = game.surfaces[surface_name].find_entities(area)
 
   local filtered = annotate_entities(filter_entities(entities))
-  --log("generator found ("..#filtered.."/"..#entities..") in chunk: "..serpent.line(dims))
+  if HelpFunctions.check_severity(3) then HelpFunctions.log_it("generator found ("..#filtered.."/"..#entities..") in chunk: "..serpent.line(dims)) end
   return filtered
 end
 

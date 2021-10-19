@@ -1,13 +1,16 @@
 ---------------------------------------------------------------------------------------------------
 Version: 0.4.1
-Date: 2021-10-12
+Date: 2021-10-19
   Changes:
-    - Add building action rate settings per user
-    - Add shortcut to enable/disable automatic tile building
-    - Priotize in this order: deconstruction, entity building, upgrading and tile building
     - Build near the player while moving
     - Visual building area
-    - More settings for tweaking performance and behavior
+    - Priotize building in this order: deconstruction, entity building, upgrading and tile building
+    - Add setting building cycle length in ticks
+    - Add setting building action rate
+    - Add setting idle recheck cycles 
+    - Add setting visual area opacity
+    - Add setting for debug logs
+    - Add shortcut (Ctrl+Shift+B) to enable/disable automatic tile building
 ---------------------------------------------------------------------------------------------------
 Version: 0.4.0
 Date: 2020-11-30

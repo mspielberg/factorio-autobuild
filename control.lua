@@ -7,14 +7,8 @@ local HelpFunctions = require "HelpFunctions"
 local cache = NDCache.new(Scanner.generator)
 local player_state
 local cycle_length_in_ticks = settings.global["autobuild-cycle-length-in-ticks"].value
-local log_level = settings.global["autobuild-log-level"].value
 
-local function log_it(sev, text)
-  if log_level <= 0 then return end
-  if sev <= log_level then
-    game.print(text)
-  end
-end
+
 
 local function get_player_state(player_index)
   local state = player_state[player_index]
@@ -22,10 +16,9 @@ local function get_player_state(player_index)
     state = {}
     state.enable_tiles = true --default enabled
     state.actions_per_cycle = settings.get_player_settings(player_index)["autobuild-actions-per-cycle"].value
-    state.move_latency = settings.get_player_settings(player_index)["autobuild-move-latency"].value
-    state.move_threshold = settings.get_player_settings(player_index)["autobuild-move-threshold"].value
     state.idle_cycles_before_recheck = settings.get_player_settings(player_index)["autobuild-idle-cycles-before-recheck"].value
     state.visual_area_opacity = settings.get_player_settings(player_index)["autobuild-visual-area-opacity"].value
+    state.last_successful_build_tick = 0
 
     player_state[player_index] = state
   end
@@ -95,7 +88,7 @@ local function toggle_enabled_construction(player)
     change_visual_area(nil, state, nil)
   end
 
-  state.building_enabled = enable
+  state.is_building_phase = enable
 
   player.set_shortcut_toggled("autobuild-shortcut-toggle-construction", enable)
 
@@ -129,8 +122,11 @@ local function entity_chunk_key(entity)
   }
 end
 
+-- force_recheck triggers building instantly, after a blueprint is placed
+local force_recheck = false
 local function entity_changed(event)
   cache:invalidate(entity_chunk_key(event.entity or event.created_entity))
+  force_recheck = true
 end
 
 local function entity_built(event)
@@ -139,6 +135,7 @@ local function entity_built(event)
   local action_type = ActionTypes.get_action_type(entity)
   if action_type == ActionTypes.ENTITY_GHOST or action_type == ActionTypes.TILE_GHOST then
     cache:invalidate(entity_chunk_key(entity))
+    force_recheck = true
   end
 end
 
@@ -377,69 +374,67 @@ local function do_autobuild(state, player)
     if candidate then
       if try_candidate(candidate, player, state) then
         remainingActions = remainingActions - 1
-        state.last_successful_build_cycle = state.current_cycle
-        log_it(5, "cycle: "..state.current_cycle..": build/deconstruced/upgraded candidate: type: "..candidate.action_type.." on pos " .. candidate.position.x .."/"..candidate.position.y)
+        state.last_successful_build_tick = game.tick
+        if HelpFunctions.check_severity(5) then
+          HelpFunctions.log_it(string.format("cycle: %d: %s on position: %d/%d",
+              state.current_cycle, ActionTypes.get_action_verb(candidate.action_type),
+              candidate.position.x, candidate.position.y))
+        end
       end
     end
   until (not candidate) or (remainingActions == 0)
 
   if not candidate then
-    state.building_enabled = false
+    -- no building candidates on current position -> stop building phase
+    state.is_building_phase = false
   end
 end
 
-local function needs_rebuild(player, state)
+-- needs_rechecks
+-- Determines, whether the area around the player should be rechecked (mainly from cache, but might also get rescanned, if something changed in the blueprint)
+-- Also, the building candidates are getting reordered according to action_type and player position.
+-- returns true -> yes: recheck
+-- returns false -> no: don't recheck, build further on the old location 
+local function needs_recheck(player, state)
   -- increment current_cycle
-  local current_cycle = (state.current_cycle or 0) + 1
-  state.current_cycle = current_cycle
-
+  local current_cycle = (state.current_cycle or 0) 
+  state.current_cycle = current_cycle + 1
+  
   -- increment motionless cycle, which gets reset, when player moves.
-  local motionless_cycles = (state.motionless_cycles or 0) + 1
-  state.motionless_cycles = motionless_cycles
+  local motionless_cycles = (state.motionless_cycles or 0) 
+  state.motionless_cycles = motionless_cycles + 1
   
-  -- always recheck once every "idle_cycles_before_recheck" cycles, regardless of other conditions
-  local is_recheck_cycle = (motionless_cycles % state.idle_cycles_before_recheck) == 0
-  if not is_recheck_cycle then
-    
-    local cycles_after = motionless_cycles - state.move_latency
-    -- wait the amount of move_latency cycles after moving
-    if cycles_after <= 0 then 
-      log_it(4, "cycle: "..current_cycle..": no recheck: below move_latency")
-      return false --no recheck
-    end
-
-    if not state.building_enabled then
-      
-      -- player has not been moved recently
-      if cycles_after > 1 then 
-        log_it(3, "cycle: "..current_cycle..": no recheck: not moved recently")
-        return false --no recheck
-      end 
-      
-      -- if 3*idle_cycles_before_recheck in ticks has been past, without any building action.
-      if ((state.last_successful_build_cycle or current_cycle) + 3*state.idle_cycles_before_recheck) < current_cycle then 
-        log_it(3, "cycle: "..current_cycle..": no recheck: not built recently")
-        return false--no recheck
-      end
-    end
-
-    -- player has not been moved more than the amount of "move_threshold" tiles
-    if state.move_threshold > 0 then
-      local distance = HelpFunctions.chebyshev_distance(state.position, player.position)
-      if distance <= state.move_threshold then 
-        log_it(4, "cycle: "..current_cycle..": no recheck: not moved far enough")
-        return false--no recheck
-      end
-    end
-
+  if force_recheck then
+    if HelpFunctions.check_severity(3) then HelpFunctions.log_it(string.format("cycle: %d: force recheck", current_cycle)) end
+    return true -- force recheck
   end
-  
+
+  -- always recheck once every 12 (idle_cycles_before_recheck) cycles, regardless of other conditions
+  local is_recheck_cycle = (current_cycle % state.idle_cycles_before_recheck) == 0
   if is_recheck_cycle then
-    log_it(3, "cycle: "..current_cycle..": recheck regular cycle")
-  else
-    log_it(4, "cycle: "..current_cycle..": recheck normal")
+    if HelpFunctions.check_severity(3) then HelpFunctions.log_it(string.format("cycle: %d: recheck regular cycle", current_cycle)) end
+    return true -- recheck cycle
+  end
+    
+  -- if player is standing still, no recheck
+  if motionless_cycles >= 1 then 
+    if HelpFunctions.check_severity(4) then HelpFunctions.log_it(string.format("cycle: %d: no recheck: not moved recently", current_cycle)) end
+    return false --no recheck
+  end 
+
+  -- this is a pause state, which can only be left by the recheck cycle every 12 (idle_cycles_before_recheck) cycles (and if new building candidates are detected)
+  -- no recheck, if 5 sec. has been past, without any successful building action.
+  if not is_building_phase then
+
+    local ticks_since_last_successful_build = game.tick - state.last_successful_build_tick
+
+    if ticks_since_last_successful_build >= 300 then -- 5 sec.
+      if HelpFunctions.check_severity(3) then HelpFunctions.log_it(string.format("cycle: %d: no recheck: not built recently", current_cycle)) end
+      return false--no recheck
+    end
   end
 
+  if HelpFunctions.check_severity(3) then HelpFunctions.log_it(string.format("cycle: %d: recheck normal", current_cycle)) end
   return true
 end
 
@@ -457,9 +452,9 @@ local function handle_player_update(player)
 
   if player.in_combat then return end
 
-  if needs_rebuild(player, state) then
-    -- player position changed
-    -- or once after "state.idle_cycles_before_recheck" cycles
+  if needs_recheck(player, state) then
+    -- player has moved
+    -- or once every 12 cycles (state.idle_cycles_before_recheck)
     state.build_candidates = nil
     state.candidate_iter = nil
 
@@ -467,11 +462,11 @@ local function handle_player_update(player)
     state.position = player.position
     state.build_distance = player.build_distance
 
-    state.building_enabled = true
+    state.is_building_phase = true
   end
 
-  -- try to build on last position, if not moved
-  if state.building_enabled then
+  -- build on last position, if recheck was not necessary
+  if state.is_building_phase then
     do_autobuild(state, player)
   end 
 end
@@ -480,6 +475,7 @@ function update_cycle(event)
   for _, player in pairs(game.connected_players) do
     handle_player_update(player)
   end
+  force_recheck = false
 end
 
 script.on_nth_tick(cycle_length_in_ticks, update_cycle)
@@ -495,14 +491,10 @@ script.on_event(defines.events.on_runtime_mod_setting_changed, function(event)
     script.on_nth_tick(cycle_length_in_ticks, update_cycle)
   
   elseif event.setting == "autobuild-log-level" then
-    log_level = settings.global[event.setting].value
+    HelpFunctions.log_level = settings.global[event.setting].value
 
   elseif event.setting == "autobuild-actions-per-cycle" then
     state.actions_per_cycle = settings.get_player_settings(event.player_index)[event.setting].value
-  elseif event.setting == "autobuild-move-latency" then
-    state.move_latency = settings.get_player_settings(event.player_index)[event.setting].value
-  elseif event.setting == "autobuild-move-threshold" then
-    state.move_threshold = settings.get_player_settings(event.player_index)[event.setting].value
   elseif event.setting == "autobuild-idle-cycles-before-recheck" then
     state.idle_cycles_before_recheck = settings.get_player_settings(event.player_index)[event.setting].value
   elseif event.setting == "autobuild-visual-area-opacity" then
