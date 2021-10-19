@@ -13,4 +13,15 @@ function HelpFunctions.chebyshev_distance(p1, p2)
   end
 end
 
+function HelpFunctions.log_it(text)
+  log(text)
+  game.print(text)
+end
+
+HelpFunctions.log_level = settings.global["autobuild-log-level"].value
+function HelpFunctions.check_severity(sev)
+  if HelpFunctions.log_level <= 0 then return false end
+  return sev <= HelpFunctions.log_level
+end
+
 return HelpFunctions

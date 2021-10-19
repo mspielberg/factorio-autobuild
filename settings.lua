@@ -22,33 +22,12 @@ table.insert(settings,
         maximum_value = 100,
     })
 
-table.insert(settings,
-    {
-        type = "int-setting",
-        name = "autobuild-move-latency",
-        order = "c",
-        setting_type = "runtime-per-user",
-        default_value = 0,
-        minimum_value = 0,
-        maximum_value = 50,
-    })
-
-table.insert(settings,
-    {
-        type = "int-setting",
-        name = "autobuild-move-threshold",
-        order = "d",
-        setting_type = "runtime-per-user",
-        default_value = 1,
-        minimum_value = 0,
-        maximum_value = 100,
-    })
 
 table.insert(settings,
     {
         type = "int-setting",
         name = "autobuild-idle-cycles-before-recheck",
-        order = "e",
+        order = "c",
         setting_type = "runtime-per-user",
         default_value = 12,
         minimum_value = 1,
@@ -59,7 +38,7 @@ table.insert(settings,
     {
         type = "int-setting",
         name = "autobuild-visual-area-opacity",
-        order = "f",
+        order = "d",
         setting_type = "runtime-per-user",
         default_value = 20,
         minimum_value = 0,
