@@ -412,7 +412,7 @@ local function needs_recheck(player, state)
   -- always recheck once every 12 (idle_cycles_before_recheck) cycles, regardless of other conditions
   local is_recheck_cycle = (current_cycle % state.idle_cycles_before_recheck) == 0
   if is_recheck_cycle then
-    if HelpFunctions.check_severity(3) then HelpFunctions.log_it(string.format("cycle: %d: recheck regular cycle", current_cycle)) end
+    if HelpFunctions.check_severity(4) then HelpFunctions.log_it(string.format("cycle: %d: recheck regular cycle", current_cycle)) end
     return true -- recheck cycle
   end
     

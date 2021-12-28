@@ -1,16 +1,17 @@
 ---------------------------------------------------------------------------------------------------
 Version: 0.4.1
-Date: 2021-10-19
+Date: 2021-12-28
   Changes:
     - Build near the player while moving
     - Visual building area
     - Priotize building in this order: deconstruction, entity building, upgrading and tile building
     - Add setting building cycle length in ticks
     - Add setting building action rate
-    - Add setting idle recheck cycles 
+    - Add setting idle recheck cycles
     - Add setting visual area opacity
     - Add setting for debug logs
     - Add shortcut (Ctrl+Shift+B) to enable/disable automatic tile building
+    - Don't build landfill tiles on top of other landfill tiles (prevents wasting landfill in Sea Block)
 ---------------------------------------------------------------------------------------------------
 Version: 0.4.0
 Date: 2020-11-30
