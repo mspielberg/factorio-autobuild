@@ -33,6 +33,7 @@ local function change_visual_area(player, state, opacity)
   end
 
   if not opacity or opacity <= 0 then return end
+  if not player.character then return end
 
   local radius = state.build_distance + 0.5
 
@@ -44,7 +45,8 @@ local function change_visual_area(player, state, opacity)
     left_top = player.character,
     left_top_offset = { -radius, -radius },
     right_bottom = player.character,
-    right_bottom_offset = { radius, radius }
+    right_bottom_offset = { radius, radius },
+    players = { player },
   })
 end
 

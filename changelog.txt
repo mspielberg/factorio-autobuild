@@ -1,4 +1,10 @@
 ---------------------------------------------------------------------------------------------------
+Version: 0.5.1
+Date: 2022-03-13
+  Bugfixes:
+    - Multiplayer: Display building area only for the player, who enables it
+    - Prevent crash, when player.character is set to nil
+---------------------------------------------------------------------------------------------------
 Version: 0.5.0
 Date: 2022-01-23
   Minor Features:
