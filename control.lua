@@ -8,8 +8,6 @@ local cache = NDCache.new(Scanner.generator)
 local player_state
 local cycle_length_in_ticks = settings.global["autobuild-cycle-length-in-ticks"].value
 
-
-
 local function get_player_state(player_index)
   local state = player_state[player_index]
   if not state then
@@ -33,6 +31,8 @@ local function change_visual_area(player, state, opacity)
   end
 
   if not opacity or opacity <= 0 then return end
+  if not player.character then return end
+  if not state.build_distance then return end
 
   local radius = state.build_distance + 0.5
 
@@ -44,7 +44,8 @@ local function change_visual_area(player, state, opacity)
     left_top = player.character,
     left_top_offset = { -radius, -radius },
     right_bottom = player.character,
-    right_bottom_offset = { radius, radius }
+    right_bottom_offset = { radius, radius },
+    players = { player },
   })
 end
 
@@ -60,6 +61,15 @@ end
 script.on_init(on_init)
 
 local function on_configuration_changed()
+  -- cleanup
+  rendering.clear("autobuild") -- removes all rendering object of this mods.
+  local construction_toggle_name = "autobuild-shortcut-toggle-construction"
+  for _, player in pairs(game.players) do
+    if player and player.is_shortcut_available(construction_toggle_name)
+              and player.is_shortcut_toggled(construction_toggle_name) then
+      player.set_shortcut_toggled(construction_toggle_name, false)
+    end
+  end 
   global.player_state = {}
   on_load()
 end
