@@ -1,11 +1,11 @@
 ---------------------------------------------------------------------------------------------------
 Version: 0.5.1
-Date: 2022-03-13
+Date: 2022-06-22
   Bugfixes:
-    - Multiplayer: Display building area only for the player, who enables it
+    - Multiplayer: Display building area only for the player, who enabled it
     - Prevent crash, when player.character is set to nil
-    - Remove visual areas after updates of factorio.
-    - Reset toggles after update
+    - Remove visual area after updates of factorio or mods.
+    - Reset shortcut toggle after update
     - Prevent crash, when user changes opacity setting while contruction is disabled
 ---------------------------------------------------------------------------------------------------
 Version: 0.5.0
