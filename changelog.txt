@@ -7,6 +7,8 @@ Date: 2022-06-22
     - Remove visual area after updates of factorio or mods.
     - Reset shortcut toggle after update
     - Prevent crash, when user changes opacity setting while contruction is disabled
+  Changes:
+    - Update translations from Crowdin
 ---------------------------------------------------------------------------------------------------
 Version: 0.5.0
 Date: 2022-01-23
