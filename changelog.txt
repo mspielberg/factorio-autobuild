@@ -1,4 +1,13 @@
 ---------------------------------------------------------------------------------------------------
+Version: 0.5.2
+Date: 2022-10-28
+  Bugfixes:
+    - Fix that cancelled decontruction/upgrading is noticed properly and don't execute it. Also, prevent potential desync while replay.
+    - Consider the force, when building, so you don't build ghosts of other forces f.e. enemy force
+    - Build only ghosts, which are not assigned to other robots. If Add a setting to ignore other robots
+    - Add setting to disable visual area, since it was not clear enough, that you can achieve the same by setting opacity to 0
+    - Invalidate cache on toggling the contruction on/off. This is the way to rebuilt the cache, if something is screwed up it due to a bug.
+---------------------------------------------------------------------------------------------------
 Version: 0.5.1
 Date: 2022-06-22
   Bugfixes:

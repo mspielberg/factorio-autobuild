@@ -15,7 +15,9 @@ local function get_player_state(player_index)
     state.enable_tiles = true --default enabled
     state.actions_per_cycle = settings.get_player_settings(player_index)["autobuild-actions-per-cycle"].value
     state.idle_cycles_before_recheck = settings.get_player_settings(player_index)["autobuild-idle-cycles-before-recheck"].value
+    state.enable_visual_area = settings.get_player_settings(player_index)["autobuild-enable-visual-area"].value
     state.visual_area_opacity = settings.get_player_settings(player_index)["autobuild-visual-area-opacity"].value
+    state.ignore_other_robots = settings.get_player_settings(player_index)["autobuild-ignore-other-robots"].value
     state.last_successful_build_tick = 0
 
     player_state[player_index] = state
@@ -30,6 +32,7 @@ local function change_visual_area(player, state, opacity)
     state.visual_area_id = nil
   end
 
+  if not state.enable_visual_area then return end
   if not opacity or opacity <= 0 then return end
   if not player.character then return end
   if not state.build_distance then return end
@@ -62,7 +65,7 @@ script.on_init(on_init)
 
 local function on_configuration_changed()
   -- cleanup
-  rendering.clear("autobuild") -- removes all rendering object of this mods.
+  rendering.clear("autobuild") -- removes all rendering object of this mod
   local construction_toggle_name = "autobuild-shortcut-toggle-construction"
   for _, player in pairs(game.players) do
     if player and player.is_shortcut_available(construction_toggle_name)
@@ -71,6 +74,7 @@ local function on_configuration_changed()
     end
   end 
   global.player_state = {}
+  cache = NDCache.new(Scanner.generator)
   on_load()
 end
 script.on_configuration_changed(on_configuration_changed)
@@ -83,6 +87,8 @@ local function toggle_enabled_construction(player)
   
   state.build_candidates = nil
   state.candidate_iter = nil
+
+  cache = NDCache.new(Scanner.generator)
 
   if enable then
     state.surface_name = player.surface.name
@@ -123,28 +129,43 @@ local function toggle_enabled_tiles(player)
 end
 
 local floor = math.floor
-local function entity_chunk_key(entity)
+local function entity_chunk_key(entity, force_name)
   local position = entity.position
   return {
     entity.surface.name,
+    force_name,
     floor(position.x / Constants.AREA_SIZE),
     floor(position.y / Constants.AREA_SIZE),
   }
 end
 
+local function get_force_name(player_index, entity)
+  local force_name
+  if player_index then
+    force_name = game.players[player_index].force.name
+  else
+    force_name = entity.force.name
+  end
+  return force_name
+end
+
 -- force_recheck triggers building instantly, after a blueprint is placed
 local force_recheck = false
 local function entity_changed(event)
-  cache:invalidate(entity_chunk_key(event.entity or event.created_entity))
+  local entity = event.entity or event.created_entity
+  local force_name = get_force_name(event.player_index, entity)
+
+  cache:invalidate(entity_chunk_key(entity, force_name))
   force_recheck = true
 end
 
 local function entity_built(event)
   local entity = event.entity or event.destination
+  local force_name = get_force_name(event.player_index, entity)
 
   local action_type = ActionTypes.get_action_type(entity)
   if action_type == ActionTypes.ENTITY_GHOST or action_type == ActionTypes.TILE_GHOST then
-    cache:invalidate(entity_chunk_key(entity))
+    cache:invalidate(entity_chunk_key(entity, force_name))
     force_recheck = true
   end
 end
@@ -160,7 +181,10 @@ local event_handlers = {
   end,
 
   on_marked_for_deconstruction = entity_changed,
+  on_cancelled_deconstruction = entity_changed,
+
   on_marked_for_upgrade = entity_changed,
+  on_cancelled_upgrade = entity_changed,
 
   on_player_changed_position = function(event)
     local state = get_player_state(event.player_index)
@@ -331,14 +355,54 @@ local build_actions =
   [ActionTypes.UPGRADE] = try_upgrade,
 }
 
+local function get_assigned_to_other_robot(entity, action_type, force_name)
+  
+  if action_type == ActionTypes.DECONSTRUCT or action_type == ActionTypes.DECONSTRUCT_TILE then
+    -- is_registered_for_deconstruction(force) -> boolean 
+    -- Is this entity registered for deconstruction with this force? 
+    -- If false, it means a construction robot has been dispatched to deconstruct it, 
+    -- or it is not marked for deconstruction. 
+    -- The complexity is effectively O(1) - it depends on the number of objects targeting this entity which should be small enough.
+    return not entity.is_registered_for_deconstruction(force_name or "no_force")
+  
+  elseif action_type == ActionTypes.ENTITY_GHOST or action_type == ActionTypes.TILE_GHOST then
+    -- is_registered_for_construction() -> boolean 
+    -- Is this entity or tile ghost or item request proxy registered for construction? 
+    -- If false, it means a construction robot has been dispatched to build the entity, 
+    -- or it is not an entity that can be constructed.
+    return not entity.is_registered_for_construction()
+  
+  elseif action_type == ActionTypes.UPGRADE then
+    -- is_registered_for_upgrade() -> boolean
+    -- Is this entity registered for upgrade? 
+    -- If false, it means a construction robot has been dispatched to upgrade it, 
+    -- or it is not marked for upgrade. 
+    -- This is worst-case O(N) complexity where N is the current number of things in the upgrade queue.
+    return not entity.is_registered_for_upgrade()
+  end
+  return false
+end
+
 local function try_candidate(entry, player, state)
-  if not entry or not entry.action_type or entry.action_type <= ActionTypes.NONE then
+  if not entry then return false end
+
+  local action_type = entry.action_type
+  if not action_type or action_type <= ActionTypes.NONE then
     return false
   end
 
   local entity = entry.entity
   if not entity or not entity.valid then
     return false
+  end
+
+  -- don't check, if setting "ignore_other_robots" is enabled to save on performance
+  if not state.ignore_other_robots then
+    local force_name = player and player.force and player.force.name 
+
+    if get_assigned_to_other_robot(entity, action_type, force_name) then
+      return false
+    end
   end
 
   local build_action = build_actions[entry.action_type]
@@ -349,7 +413,7 @@ local function try_candidate(entry, player, state)
   return false
 end
 
-local function get_candidates(state)
+local function get_candidates(state, player)
   
   local candidates = state.build_candidates
   if candidates then
@@ -363,10 +427,12 @@ local function get_candidates(state)
   local build_distance = math.min(state.build_distance + 0.5, Constants.MAX_DISTANCE)
   candidates = Scanner.find_candidates(
     cache,
+    player,
     state.surface_name,
     state.position,
     build_distance,
     Constants.MAX_CANDIDATES)
+
   state.build_candidates = candidates
   state.candidate_iter = nil
   
@@ -374,7 +440,7 @@ local function get_candidates(state)
 end
 
 local function do_autobuild(state, player)
-  local candidates = get_candidates(state)
+  local candidates = get_candidates(state, player)
   if not candidates then return end
 
   local candidate = nil
@@ -507,10 +573,13 @@ script.on_event(defines.events.on_runtime_mod_setting_changed, function(event)
     state.actions_per_cycle = settings.get_player_settings(event.player_index)[event.setting].value
   elseif event.setting == "autobuild-idle-cycles-before-recheck" then
     state.idle_cycles_before_recheck = settings.get_player_settings(event.player_index)[event.setting].value
-  elseif event.setting == "autobuild-visual-area-opacity" then
-    state.visual_area_opacity = settings.get_player_settings(event.player_index)[event.setting].value
+  elseif event.setting == "autobuild-visual-area-opacity" or event.setting == "autobuild-enable-visual-area" then
+    state.enable_visual_area = settings.get_player_settings(event.player_index)["autobuild-enable-visual-area"].value
+    state.visual_area_opacity = settings.get_player_settings(event.player_index)["autobuild-visual-area-opacity"].value
     local player = game.players[event.player_index]
     change_visual_area(player, state, state.visual_area_opacity)
+  elseif event.setting == "autobuild-ignore-other-robots" then
+    state.ignore_other_robots = settings.get_player_settings(event.player_index)[event.setting].value
   end
 
 end)
