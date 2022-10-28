@@ -16,13 +16,13 @@ local function position_to_key(pos)
   return floor(pos.x) .. "_" .. floor(pos.y)
 end
 
-local function filter_and_annotate_entities(entities, existing_land_tiles_by_pos)
+local function filter_and_annotate_entities(entities, existing_land_tiles_by_pos, force_name)
   local filtered = {}
   local i = 1
 
   for _, entity in pairs(entities) do
     if entity.valid then
-      local action_type = ActionTypes.get_action_type(entity)
+      local action_type = ActionTypes.get_action_type(entity, force_name)
       if action_type > ActionTypes.NONE then
         
         local skip = false
@@ -34,7 +34,7 @@ local function filter_and_annotate_entities(entities, existing_land_tiles_by_pos
             end
           end
         end
-
+        
         if not skip then
           filtered[i] = 
           {
@@ -52,8 +52,9 @@ end
 
 local function generator(dims)
   local surface_name = dims[1]
-  local cx           = dims[2]
-  local cy           = dims[3]
+  local force_name   = dims[2]
+  local cx           = dims[3]
+  local cy           = dims[4]
   
   local area_tiles = {
     left_top = {
@@ -65,7 +66,12 @@ local function generator(dims)
       y = (1 + cy) * Constants.AREA_SIZE,
     },
   }
-  local land_tiles = game.surfaces[surface_name].find_tiles_filtered { area = area_tiles, name = Constants.LAND_NAMES }
+  local land_tiles = game.surfaces[surface_name].find_tiles_filtered 
+    { 
+      area = area_tiles, 
+      name = Constants.LAND_NAMES, 
+      force = force_name
+    }
 
   local area_entities = {
     left_top = {
@@ -77,8 +83,11 @@ local function generator(dims)
       y = (1 + cy) * Constants.AREA_SIZE - 0.1,
     },
   }
-  local entities = game.surfaces[surface_name].find_entities(area_entities)
-
+  local entities = game.surfaces[surface_name].find_entities_filtered 
+    { 
+      area = area_entities, 
+      force = force_name
+    }
 
   if HelpFunctions.check_severity(4) then
     local tiles_short = ""
@@ -111,7 +120,7 @@ local function generator(dims)
     existing_land_tiles_by_pos[key] = true
   end
 
-  local filtered_entities = filter_and_annotate_entities(entities, existing_land_tiles_by_pos)
+  local filtered_entities = filter_and_annotate_entities(entities, existing_land_tiles_by_pos, force_name)
 
   if HelpFunctions.check_severity(3) then HelpFunctions.log_it("generator found ("..#filtered_entities.."/"..#entities..") entities in chunk: "..serpent.line(dims)) end
   
@@ -196,12 +205,20 @@ local function sort_order(entry1, entry2)
   return by_action_type_result < 0
 end
 
-local function find_candidates(cache, surface, position, distance, max)
+local function find_candidates(cache, player, surface, position, distance, max)
   local entries = {}
   local iter = chunk_spiral(position, distance)
   local i = 1
+  
+  local force_name
+  if player and player.force and player.force.name then
+    force_name = player.force.name
+  else
+    force_name = "no_force"
+  end
+
   for cx, cy in iter do
-    local unfiltered = cache:get{surface, cx, cy}
+    local unfiltered = cache:get{surface, force_name, cx, cy}
     unfiltered = annotate_distances(unfiltered, position)
     local filtered = filter_cache_entries(unfiltered, distance)
     for _, entry in pairs(filtered) do

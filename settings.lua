@@ -36,15 +36,32 @@ table.insert(settings,
 
 table.insert(settings,
     {
+        type = "bool-setting",
+        name = "autobuild-enable-visual-area",
+        order = "da",
+        setting_type = "runtime-per-user",
+        default_value = true,
+    })
+
+table.insert(settings,
+    {
         type = "int-setting",
         name = "autobuild-visual-area-opacity",
-        order = "d",
+        order = "db",
         setting_type = "runtime-per-user",
         default_value = 20,
         minimum_value = 0,
         maximum_value = 100,
     })
 
+table.insert(settings,
+    {
+        type = "bool-setting",
+        name = "autobuild-ignore-other-robots",
+        order = "ea",
+        setting_type = "runtime-per-user",
+        default_value = false,
+    })
 
 table.insert(settings,
     {
