@@ -129,43 +129,30 @@ local function toggle_enabled_tiles(player)
 end
 
 local floor = math.floor
-local function entity_chunk_key(entity, force_name)
+local function entity_chunk_key(entity)
   local position = entity.position
   return {
     entity.surface.name,
-    force_name,
     floor(position.x / Constants.AREA_SIZE),
     floor(position.y / Constants.AREA_SIZE),
   }
 end
 
-local function get_force_name(player_index, entity)
-  local force_name
-  if player_index then
-    force_name = game.players[player_index].force.name
-  else
-    force_name = entity.force.name
-  end
-  return force_name
-end
-
 -- force_recheck triggers building instantly, after a blueprint is placed
 local force_recheck = false
+
 local function entity_changed(event)
   local entity = event.entity or event.created_entity
-  local force_name = get_force_name(event.player_index, entity)
-
-  cache:invalidate(entity_chunk_key(entity, force_name))
+  cache:invalidate(entity_chunk_key(entity))
   force_recheck = true
 end
 
 local function entity_built(event)
   local entity = event.entity or event.destination
-  local force_name = get_force_name(event.player_index, entity)
-
   local action_type = ActionTypes.get_action_type(entity)
   if action_type == ActionTypes.ENTITY_GHOST or action_type == ActionTypes.TILE_GHOST then
-    cache:invalidate(entity_chunk_key(entity, force_name))
+    
+    cache:invalidate(entity_chunk_key(entity))
     force_recheck = true
   end
 end
@@ -210,6 +197,26 @@ end
 
 script.on_event(defines.events.on_built_entity, entity_changed, {{ filter = "ghost" }})
 
+function force_match(entity, player, including_neutral_force)
+  if not entity or not entity.valid or not entity.force or not entity.force.name then
+    return false
+  end
+
+  if notplayer or not player.valid or not player.force or not player.force.name then
+    return false
+  end
+
+  if entity.force.name == player.force.name then
+    return true
+  end
+
+  if including_neutral_force and entity.force.name == "neutral" then
+    return true
+  end
+
+  return false
+end
+
 local to_place_cache = {}
 local function to_place(entity_name)
   local stacks = to_place_cache[entity_name]
@@ -244,9 +251,17 @@ local function try_insert_requested(entity, request_proxy, player)
 end
 
 local function insert_or_spill(player, entity, name, count)
-  local inserted = player.insert{name=name, count=count}
+  local inserted = 0
+  if player.can_insert {name=name, count=count} then
+    inserted = player.insert{name=name, count=count}
+  end
+
   if inserted < count then
-    entity.surface.spill_item_stack(entity.position, {name = name, count = count - inserted})
+    if entity then
+      entity.surface.spill_item_stack(entity.position, {name = name, count = count - inserted})
+    else
+      player.surface.spill_item_stack(player.position, {name = name, count = count - inserted})
+    end
   end
 end
 
@@ -297,6 +312,10 @@ local function try_upgrade_with_stack(entity, target_name, player, stack_to_plac
 end
 
 local function try_revive_entity(entity, player, state)
+  if not force_match(entity, player, false) then
+    return false
+  end
+
   local stacks_to_place = to_place(entity.ghost_name)
   for _, stack_to_place in pairs(stacks_to_place) do
     local success = try_revive_with_stack(entity, player, stack_to_place)
@@ -328,6 +347,10 @@ local function try_upgrade_paired_entity(entity, other_entity, player)
 end
 
 local function try_upgrade(entity, player, state)
+  if not force_match(entity, player, false) then
+    return false
+  end
+
   if entity.type == "underground-belt" and entity.neighbours then
     return try_upgrade_paired_entity(entity, entity.neighbours, player)
   elseif entity.type == "pipe-to-ground" and entity.neighbours[1] and entity.neighbours[1][1] then
@@ -338,11 +361,21 @@ local function try_upgrade(entity, player, state)
 end
 
 local function try_deconstruct_tile(entity, player, state)
-  local position = entity.position
-  return player.mine_tile(entity.surface.get_tile(position.x, position.y))
+  if not force_match(entity, player, true) then
+    return false
+  end
+  
+  if entity.to_be_deconstructed(player.force.name) then
+    local position = entity.position
+    return player.mine_tile(entity.surface.get_tile(position.x, position.y))
+  end
+  return false
 end
 
 local function try_deconstruct_entity(entity, player, state)
+  if not force_match(entity, player, true) then
+    return false
+  end
   return player.mine_entity(entity)
 end
 
@@ -413,7 +446,7 @@ local function try_candidate(entry, player, state)
   return false
 end
 
-local function get_candidates(state, player)
+local function get_candidates(state)
   
   local candidates = state.build_candidates
   if candidates then
@@ -427,7 +460,6 @@ local function get_candidates(state, player)
   local build_distance = math.min(state.build_distance + 0.5, Constants.MAX_DISTANCE)
   candidates = Scanner.find_candidates(
     cache,
-    player,
     state.surface_name,
     state.position,
     build_distance,
@@ -440,7 +472,7 @@ local function get_candidates(state, player)
 end
 
 local function do_autobuild(state, player)
-  local candidates = get_candidates(state, player)
+  local candidates = get_candidates(state)
   if not candidates then return end
 
   local candidate = nil
