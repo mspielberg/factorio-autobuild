@@ -1,4 +1,12 @@
 ---------------------------------------------------------------------------------------------------
+Version: 0.5.3
+Date: 2022-10-30
+  Bugfixes:
+    - Fix, that neutral entities can also be decontructed, but neutral entity ghosts are not built.
+    - When replacing tiles and player inventory is full, spill items on the ground on player position. This prevent nil access, because the entity position is not available
+  Changes:
+    - Update translations from Crowdin (Many thanks to you!)
+---------------------------------------------------------------------------------------------------
 Version: 0.5.2
 Date: 2022-10-28
   Bugfixes:

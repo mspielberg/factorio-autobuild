@@ -10,7 +10,7 @@ local ActionTypes = {
   DECONSTRUCT_TILE = 5,
 }
 
-function ActionTypes.get_action_type(entity, force_name)
+function ActionTypes.get_action_type(entity)
   if not entity.valid then
     return ActionTypes.NONE
   end
@@ -19,7 +19,7 @@ function ActionTypes.get_action_type(entity, force_name)
 
   if entity_name == "entity-ghost" then
     return ActionTypes.ENTITY_GHOST
-  elseif entity.to_be_deconstructed(force_name) then
+  elseif entity.to_be_deconstructed() then
     if entity_name == "deconstructible-tile-proxy" then
       return ActionTypes.DECONSTRUCT_TILE
     else
