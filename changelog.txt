@@ -1,4 +1,11 @@
 ---------------------------------------------------------------------------------------------------
+Version: 0.5.4
+Date: 2023-01-13
+  Bugfixes:
+    - Fix that on_runtime_mod_setting_changed can be called with event.player_index == nil
+  Changes:
+    - Only deconstruct (mining) entity or tile, if the item fits into players inventory.
+---------------------------------------------------------------------------------------------------
 Version: 0.5.3
 Date: 2022-10-30
   Bugfixes:

@@ -360,6 +360,25 @@ local function try_upgrade(entity, player, state)
   end
 end
 
+local function can_insert_into_players_inventory(player, entity)
+  local can_insert = false
+  if entity.prototype and entity.prototype.mineable_properties and entity.prototype.mineable_properties.minable then
+    can_insert = true
+    if entity.prototype.mineable_properties.products then
+      for i, p in pairs(entity.prototype.mineable_properties.products) do
+        if p.type == "item" and p.amount then
+          if not player.can_insert {name=p.name, count=math.floor(p.amount)} then
+            can_insert = false
+            break
+          end
+        end
+      end
+    end
+  end
+  return can_insert
+end
+
+
 local function try_deconstruct_tile(entity, player, state)
   if not force_match(entity, player, true) then
     return false
@@ -367,7 +386,10 @@ local function try_deconstruct_tile(entity, player, state)
   
   if entity.to_be_deconstructed(player.force.name) then
     local position = entity.position
-    return player.mine_tile(entity.surface.get_tile(position.x, position.y))
+    local tile = entity.surface.get_tile(position.x, position.y)
+    if can_insert_into_players_inventory(player, tile) then
+      return player.mine_tile(tile)
+    end
   end
   return false
 end
@@ -376,7 +398,10 @@ local function try_deconstruct_entity(entity, player, state)
   if not force_match(entity, player, true) then
     return false
   end
-  return player.mine_entity(entity)
+
+  if can_insert_into_players_inventory(player, entity) then
+    return player.mine_entity(entity, false)
+  end
 end
 
 local build_actions = 
@@ -589,8 +614,6 @@ end
 script.on_nth_tick(cycle_length_in_ticks, update_cycle)
 
 script.on_event(defines.events.on_runtime_mod_setting_changed, function(event)
-  local state = get_player_state(event.player_index)
-
   if event.setting == "autobuild-cycle-length-in-ticks" then
     --unregister with old value
     script.on_nth_tick(cycle_length_in_ticks, nil)
@@ -602,16 +625,24 @@ script.on_event(defines.events.on_runtime_mod_setting_changed, function(event)
     HelpFunctions.log_level = settings.global[event.setting].value
 
   elseif event.setting == "autobuild-actions-per-cycle" then
+    local state = get_player_state(event.player_index)
     state.actions_per_cycle = settings.get_player_settings(event.player_index)[event.setting].value
+  
   elseif event.setting == "autobuild-idle-cycles-before-recheck" then
+    local state = get_player_state(event.player_index)
     state.idle_cycles_before_recheck = settings.get_player_settings(event.player_index)[event.setting].value
+
   elseif event.setting == "autobuild-visual-area-opacity" or event.setting == "autobuild-enable-visual-area" then
+    local state = get_player_state(event.player_index)
     state.enable_visual_area = settings.get_player_settings(event.player_index)["autobuild-enable-visual-area"].value
     state.visual_area_opacity = settings.get_player_settings(event.player_index)["autobuild-visual-area-opacity"].value
     local player = game.players[event.player_index]
     change_visual_area(player, state, state.visual_area_opacity)
+
   elseif event.setting == "autobuild-ignore-other-robots" then
+    local state = get_player_state(event.player_index)
     state.ignore_other_robots = settings.get_player_settings(event.player_index)[event.setting].value
+    
   end
 
 end)
