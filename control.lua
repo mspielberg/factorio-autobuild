@@ -32,6 +32,11 @@ local function change_visual_area(player, state, opacity)
     state.visual_area_id = nil
   end
 
+  -- player.print("enable_visual_area ".. (state.enable_visual_area and "true" or "false"))
+  -- player.print("opacity ".. (opacity or "nil"))
+  -- player.print("player.character "..serpent.block(player.character))
+  -- player.print("build_distance "..(state.build_distance or "nil"))
+  
   if not state.enable_visual_area then return end
   if not opacity or opacity <= 0 then return end
   if not player.character then return end
@@ -51,6 +56,33 @@ local function change_visual_area(player, state, opacity)
     players = { player },
   })
 end
+
+-- on_character_swapped_event
+-- params: event
+--   new_unit_number
+--   old_unit_number
+--   new_character
+--   old_character
+function on_character_swapped_event(event)
+  -- attach visual area to the new character
+  local player = event and event.new_character and event.new_character.player
+  if not player then return end
+  if not player.index then return end
+
+  local state = get_player_state(player.index)
+  if not state.visual_area_id then return end
+  if not state.build_distance then return end
+
+  local radius = state.build_distance + 0.5
+  local target = rendering.get_left_top(state.visual_area_id)
+  if target and target.entity and target.entity.unit_number == event.old_unit_number then
+    rendering.set_corners(state.visual_area_id, 
+        event.new_character, { -radius, -radius }, 
+        event.new_character, { radius, radius })
+  end
+end
+
+remote.add_interface("autobuild", { on_character_swapped = on_character_swapped_event } )
 
 local function on_load()
   player_state = global.player_state

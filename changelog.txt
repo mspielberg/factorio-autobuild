@@ -1,4 +1,9 @@
 ---------------------------------------------------------------------------------------------------
+Version: 0.5.5
+Date: 2023-04-21
+  Changes:
+    - Support Jetpack mod, that the visual construction area doesn't get cleared on jetpack de/-activation
+---------------------------------------------------------------------------------------------------
 Version: 0.5.4
 Date: 2023-01-13
   Bugfixes:
