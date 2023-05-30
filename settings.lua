@@ -65,6 +65,15 @@ table.insert(settings,
 
 table.insert(settings,
     {
+        type = "bool-setting",
+        name = "autobuild-build-while-in-combat",
+        order = "eb",
+        setting_type = "runtime-per-user",
+        default_value = false,
+    })
+
+table.insert(settings,
+    {
         type = "int-setting",
         name = "autobuild-log-level",
         order = "z",

@@ -18,6 +18,8 @@ local function get_player_state(player_index)
     state.enable_visual_area = settings.get_player_settings(player_index)["autobuild-enable-visual-area"].value
     state.visual_area_opacity = settings.get_player_settings(player_index)["autobuild-visual-area-opacity"].value
     state.ignore_other_robots = settings.get_player_settings(player_index)["autobuild-ignore-other-robots"].value
+    state.build_while_in_combat = settings.get_player_settings(player_index)["autobuild-build-while-in-combat"].value
+    
     state.last_successful_build_tick = 0
 
     player_state[player_index] = state
@@ -32,6 +34,11 @@ local function change_visual_area(player, state, opacity)
     state.visual_area_id = nil
   end
 
+  -- player.print("enable_visual_area ".. (state.enable_visual_area and "true" or "false"))
+  -- player.print("opacity ".. (opacity or "nil"))
+  -- player.print("player.character "..serpent.block(player.character))
+  -- player.print("build_distance "..(state.build_distance or "nil"))
+  
   if not state.enable_visual_area then return end
   if not opacity or opacity <= 0 then return end
   if not player.character then return end
@@ -51,6 +58,33 @@ local function change_visual_area(player, state, opacity)
     players = { player },
   })
 end
+
+-- on_character_swapped_event
+-- params: event
+--   new_unit_number
+--   old_unit_number
+--   new_character
+--   old_character
+function on_character_swapped_event(event)
+  -- attach visual area to the new character
+  local player = event and event.new_character and event.new_character.player
+  if not player then return end
+  if not player.index then return end
+
+  local state = get_player_state(player.index)
+  if not state.visual_area_id then return end
+  if not state.build_distance then return end
+
+  local radius = state.build_distance + 0.5
+  local target = rendering.get_left_top(state.visual_area_id)
+  if target and target.entity and target.entity.unit_number == event.old_unit_number then
+    rendering.set_corners(state.visual_area_id, 
+        event.new_character, { -radius, -radius }, 
+        event.new_character, { radius, radius })
+  end
+end
+
+remote.add_interface("autobuild", { on_character_swapped = on_character_swapped_event } )
 
 local function on_load()
   player_state = global.player_state
@@ -293,7 +327,7 @@ local function try_upgrade_with_stack(entity, target_name, player, stack_to_plac
     return false
   end
 
-  local entity = entity.surface.create_entity{
+  local new_entity = entity.surface.create_entity{
     name = target_name,
     position = entity.position,
     direction = entity.direction,
@@ -301,13 +335,16 @@ local function try_upgrade_with_stack(entity, target_name, player, stack_to_plac
     fast_replace = true,
     player = player,
     type = entity.type:find("loader") and entity.loader_type or
-      entity.type == "underground-belt" and entity.belt_to_ground_type,
+      entity.type == "underground-belt" and entity.belt_to_ground_type or
+      nil,
     raise_built = true,
   }
-  if entity then
+
+  if new_entity then
     player.remove_item(stack_to_place)
     return true
   end
+  
   return false
 end
 
@@ -360,6 +397,25 @@ local function try_upgrade(entity, player, state)
   end
 end
 
+local function can_insert_into_players_inventory(player, entity)
+  local can_insert = false
+  if entity.prototype and entity.prototype.mineable_properties and entity.prototype.mineable_properties.minable then
+    can_insert = true
+    if entity.prototype.mineable_properties.products then
+      for i, p in pairs(entity.prototype.mineable_properties.products) do
+        if p.type == "item" and p.amount then
+          if not player.can_insert {name=p.name, count=math.floor(p.amount)} then
+            can_insert = false
+            break
+          end
+        end
+      end
+    end
+  end
+  return can_insert
+end
+
+
 local function try_deconstruct_tile(entity, player, state)
   if not force_match(entity, player, true) then
     return false
@@ -367,7 +423,10 @@ local function try_deconstruct_tile(entity, player, state)
   
   if entity.to_be_deconstructed(player.force.name) then
     local position = entity.position
-    return player.mine_tile(entity.surface.get_tile(position.x, position.y))
+    local tile = entity.surface.get_tile(position.x, position.y)
+    if can_insert_into_players_inventory(player, tile) then
+      return player.mine_tile(tile)
+    end
   end
   return false
 end
@@ -376,7 +435,10 @@ local function try_deconstruct_entity(entity, player, state)
   if not force_match(entity, player, true) then
     return false
   end
-  return player.mine_entity(entity)
+
+  if can_insert_into_players_inventory(player, entity) then
+    return player.mine_entity(entity, false)
+  end
 end
 
 local build_actions = 
@@ -558,7 +620,10 @@ local function handle_player_update(player)
     return
   end
 
-  if player.in_combat then return end
+  if not state.build_while_in_combat and player.in_combat then 
+    -- don't build while in combat only when setting is enabled
+    return 
+  end
 
   if needs_recheck(player, state) then
     -- player has moved
@@ -589,8 +654,6 @@ end
 script.on_nth_tick(cycle_length_in_ticks, update_cycle)
 
 script.on_event(defines.events.on_runtime_mod_setting_changed, function(event)
-  local state = get_player_state(event.player_index)
-
   if event.setting == "autobuild-cycle-length-in-ticks" then
     --unregister with old value
     script.on_nth_tick(cycle_length_in_ticks, nil)
@@ -602,16 +665,28 @@ script.on_event(defines.events.on_runtime_mod_setting_changed, function(event)
     HelpFunctions.log_level = settings.global[event.setting].value
 
   elseif event.setting == "autobuild-actions-per-cycle" then
+    local state = get_player_state(event.player_index)
     state.actions_per_cycle = settings.get_player_settings(event.player_index)[event.setting].value
+  
   elseif event.setting == "autobuild-idle-cycles-before-recheck" then
+    local state = get_player_state(event.player_index)
     state.idle_cycles_before_recheck = settings.get_player_settings(event.player_index)[event.setting].value
+
   elseif event.setting == "autobuild-visual-area-opacity" or event.setting == "autobuild-enable-visual-area" then
+    local state = get_player_state(event.player_index)
     state.enable_visual_area = settings.get_player_settings(event.player_index)["autobuild-enable-visual-area"].value
     state.visual_area_opacity = settings.get_player_settings(event.player_index)["autobuild-visual-area-opacity"].value
     local player = game.players[event.player_index]
     change_visual_area(player, state, state.visual_area_opacity)
+
   elseif event.setting == "autobuild-ignore-other-robots" then
+    local state = get_player_state(event.player_index)
     state.ignore_other_robots = settings.get_player_settings(event.player_index)[event.setting].value
+
+  elseif event.setting == "autobuild-build-while-in-combat" then
+    local state = get_player_state(event.player_index)
+    state.build_while_in_combat = settings.get_player_settings(event.player_index)[event.setting].value
+    
   end
 
 end)
