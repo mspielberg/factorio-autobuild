@@ -18,6 +18,8 @@ local function get_player_state(player_index)
     state.enable_visual_area = settings.get_player_settings(player_index)["autobuild-enable-visual-area"].value
     state.visual_area_opacity = settings.get_player_settings(player_index)["autobuild-visual-area-opacity"].value
     state.ignore_other_robots = settings.get_player_settings(player_index)["autobuild-ignore-other-robots"].value
+    state.build_while_in_combat = settings.get_player_settings(player_index)["autobuild-build-while-in-combat"].value
+    
     state.last_successful_build_tick = 0
 
     player_state[player_index] = state
@@ -325,7 +327,7 @@ local function try_upgrade_with_stack(entity, target_name, player, stack_to_plac
     return false
   end
 
-  local entity = entity.surface.create_entity{
+  local new_entity = entity.surface.create_entity{
     name = target_name,
     position = entity.position,
     direction = entity.direction,
@@ -333,13 +335,16 @@ local function try_upgrade_with_stack(entity, target_name, player, stack_to_plac
     fast_replace = true,
     player = player,
     type = entity.type:find("loader") and entity.loader_type or
-      entity.type == "underground-belt" and entity.belt_to_ground_type,
+      entity.type == "underground-belt" and entity.belt_to_ground_type or
+      nil,
     raise_built = true,
   }
-  if entity then
+
+  if new_entity then
     player.remove_item(stack_to_place)
     return true
   end
+  
   return false
 end
 
@@ -615,7 +620,10 @@ local function handle_player_update(player)
     return
   end
 
-  if player.in_combat then return end
+  if not state.build_while_in_combat and player.in_combat then 
+    -- don't build while in combat only when setting is enabled
+    return 
+  end
 
   if needs_recheck(player, state) then
     -- player has moved
@@ -674,6 +682,10 @@ script.on_event(defines.events.on_runtime_mod_setting_changed, function(event)
   elseif event.setting == "autobuild-ignore-other-robots" then
     local state = get_player_state(event.player_index)
     state.ignore_other_robots = settings.get_player_settings(event.player_index)[event.setting].value
+
+  elseif event.setting == "autobuild-build-while-in-combat" then
+    local state = get_player_state(event.player_index)
+    state.build_while_in_combat = settings.get_player_settings(event.player_index)[event.setting].value
     
   end
 
