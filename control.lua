@@ -327,7 +327,7 @@ local function try_upgrade_with_stack(entity, target_name, player, stack_to_plac
     return false
   end
 
-  local entity = entity.surface.create_entity{
+  local new_entity = entity.surface.create_entity{
     name = target_name,
     position = entity.position,
     direction = entity.direction,
@@ -335,13 +335,16 @@ local function try_upgrade_with_stack(entity, target_name, player, stack_to_plac
     fast_replace = true,
     player = player,
     type = entity.type:find("loader") and entity.loader_type or
-      entity.type == "underground-belt" and entity.belt_to_ground_type,
+      entity.type == "underground-belt" and entity.belt_to_ground_type or
+      nil,
     raise_built = true,
   }
-  if entity then
+
+  if new_entity then
     player.remove_item(stack_to_place)
     return true
   end
+  
   return false
 end
 
