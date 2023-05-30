@@ -18,6 +18,8 @@ local function get_player_state(player_index)
     state.enable_visual_area = settings.get_player_settings(player_index)["autobuild-enable-visual-area"].value
     state.visual_area_opacity = settings.get_player_settings(player_index)["autobuild-visual-area-opacity"].value
     state.ignore_other_robots = settings.get_player_settings(player_index)["autobuild-ignore-other-robots"].value
+    state.build_while_in_combat = settings.get_player_settings(player_index)["autobuild-build-while-in-combat"].value
+    
     state.last_successful_build_tick = 0
 
     player_state[player_index] = state
@@ -615,7 +617,10 @@ local function handle_player_update(player)
     return
   end
 
-  if player.in_combat then return end
+  if not state.build_while_in_combat and player.in_combat then 
+    -- don't build while in combat only when setting is enabled
+    return 
+  end
 
   if needs_recheck(player, state) then
     -- player has moved
@@ -674,6 +679,10 @@ script.on_event(defines.events.on_runtime_mod_setting_changed, function(event)
   elseif event.setting == "autobuild-ignore-other-robots" then
     local state = get_player_state(event.player_index)
     state.ignore_other_robots = settings.get_player_settings(event.player_index)[event.setting].value
+
+  elseif event.setting == "autobuild-build-while-in-combat" then
+    local state = get_player_state(event.player_index)
+    state.build_while_in_combat = settings.get_player_settings(event.player_index)[event.setting].value
     
   end
 
