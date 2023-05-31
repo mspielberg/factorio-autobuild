@@ -3,6 +3,7 @@ local Scanner = require "Scanner"
 local ActionTypes = require "ActionTypes"
 local Constants = require "Constants"
 local HelpFunctions = require "HelpFunctions"
+local FlyingText = require "flying_text"
 
 local cache = NDCache.new(Scanner.generator)
 local player_state
@@ -30,7 +31,9 @@ end
 local function change_visual_area(player, state, opacity)
   
   if state.visual_area_id then
-    rendering.destroy(state.visual_area_id)
+    if rendering.is_valid(state.visual_area_id) then
+      rendering.destroy(state.visual_area_id)
+    end
     state.visual_area_id = nil
   end
 
@@ -76,6 +79,11 @@ function on_character_swapped_event(event)
   if not state.build_distance then return end
 
   local radius = state.build_distance + 0.5
+  if not rendering.is_valid(state.visual_area_id) then 
+    state.visual_area_id = nil
+    return 
+  end
+
   local target = rendering.get_left_top(state.visual_area_id)
   if target and target.entity and target.entity.unit_number == event.old_unit_number then
     rendering.set_corners(state.visual_area_id, 
@@ -304,6 +312,20 @@ local function try_revive_with_stack(ghost, player, stack_to_place)
     return false
   end
 
+  if not ghost.valid then
+    return false
+  end
+
+  if not player.surface.can_place_entity { 
+      name = ghost.ghost_name, 
+      position = ghost.position, 
+      direction = ghost.direction, 
+      force = ghost.force 
+    } 
+  then
+    return false
+  end
+
   local items, entity, request_proxy = ghost.revive{
     return_item_request_proxy = true,
     raise_revive = true,
@@ -323,6 +345,11 @@ local function try_revive_with_stack(ghost, player, stack_to_place)
 end
 
 local function try_upgrade_with_stack(entity, target_name, player, stack_to_place)
+  
+  if not entity.valid then
+    return false
+  end
+
   if player.get_item_count(stack_to_place.name) < stack_to_place.count then
     return false
   end
@@ -370,11 +397,26 @@ local function try_upgrade_single_entity(entity, player)
   local target_proto = entity.get_upgrade_target()
   if not target_proto then return false end
   local target_name = target_proto.name
-  local stacks_to_place = to_place(target_name)
-  for _, stack_to_place in pairs(stacks_to_place) do
-    local success = try_upgrade_with_stack(entity, target_name, player, stack_to_place)
-    if success then return success end
+  
+  if entity.name == target_name then
+    -- same entity name: f.e. upgrade belt to belt
+    local direction = entity.get_upgrade_direction()
+    -- simply change direction
+    if entity.direction ~= direction then
+      entity.direction = direction
+      entity.cancel_upgrade(player.force, player)
+      return true
+    end
+  else  
+    local stacks_to_place = to_place(target_name)
+    for _, stack_to_place in pairs(stacks_to_place) do
+      if try_upgrade_with_stack(entity, target_name, player, stack_to_place) then
+        return true
+      end
+    end
   end
+  
+  return false
 end
 
 local function try_upgrade_paired_entity(entity, other_entity, player)
@@ -397,6 +439,158 @@ local function try_upgrade(entity, player, state)
   end
 end
 
+local function move_inventories_of_entity_into_players_inventory(player, entity, flying_text_infos)
+  
+  if not entity.has_items_inside() then
+    -- entity has no items inside
+    return true
+  end
+
+  local max_index = entity.get_max_inventory_index()
+  if not max_index then 
+    -- entity has no inventory
+    return true 
+  end
+
+  for index = 1, max_index do 
+    local inventory = entity.get_inventory(index)
+    if inventory then
+      for name, count in pairs(inventory.get_contents()) do
+        local stack = { name = name, count = count }
+        if player.can_insert(stack) then
+          local actually_inserted = player.insert(stack)
+          if actually_inserted > 0 then
+            stack.count = actually_inserted
+            inventory.remove(stack)
+            -- HelpFunctions.log_it("moved " .. actually_inserted .." of " .. name)
+            flying_text_infos[name] = 
+            {
+              amount = (flying_text_infos[name] and flying_text_infos[name].amount or 0) + actually_inserted,
+              total = player.get_item_count(name) or 0 
+            }
+          end
+          
+          if actually_inserted < count then
+            -- not all items could be moved, so stop it here.
+            return false
+          end
+
+        else
+          -- noting could be moved
+          return false
+        end
+
+      end
+    end
+  end
+
+  return true
+end
+
+local inserter_types = 
+{
+  ["inserter"] = true,
+}
+
+local function move_items_in_inserters_hand_into_players_inventory(player, entity, flying_text_infos)
+  if not inserter_types[entity.type] then
+    -- entity not an inserter
+    return true
+  end
+
+  local held_stack = entity.held_stack
+  
+  if not held_stack then
+    return true
+  end
+
+  if not held_stack.valid_for_read then
+    return true
+  end
+
+  local name = held_stack.name
+  local count = held_stack.count
+
+  local stack = { name = name, count = count }
+  if player.can_insert(stack) then
+    local actually_inserted = player.insert(stack)
+    if actually_inserted > 0 then
+      flying_text_infos[name] = 
+      {
+        amount = (flying_text_infos[name] and flying_text_infos[name].amount or 0) + actually_inserted,
+        total = player.get_item_count(name) or 0 
+      }
+
+      if actually_inserted == count then
+        held_stack.clear()
+      elseif actually_inserted < count then
+        -- not all items could be moved, so stop it here.
+        held_stack.count = count - actually_inserted
+        return false
+      end
+    end
+  else
+    -- nothing could be moved
+    return false
+  end
+
+  return true
+end
+
+local belt_types = 
+{
+  ["transport-belt"] = true,
+  ["splitter"] = true,
+  ["underground-belt"] = true,
+}
+
+local function move_items_on_belt_into_players_inventory(player, entity, flying_text_infos)
+  if not belt_types[entity.type] then
+    -- entity not a belt
+    return true
+  end
+
+  local max_index = entity.get_max_transport_line_index()
+
+  if not max_index then 
+    -- entity has no transport lines
+    return true 
+  end
+
+  for index = 1, max_index do 
+    local transport_line = entity.get_transport_line(index)
+    if transport_line then
+      for name, count in pairs(transport_line.get_contents()) do
+        local stack = { name = name, count = count }
+        if player.can_insert(stack) then
+          local actually_inserted = player.insert(stack)
+          if actually_inserted > 0 then
+            stack.count = actually_inserted
+            transport_line.remove_item(stack)
+            flying_text_infos[name] = 
+            {
+              amount = (flying_text_infos[name] and flying_text_infos[name].amount or 0) + actually_inserted,
+              total = player.get_item_count(name) or 0 
+            }
+          end
+
+          if actually_inserted < count then
+            -- not all items could be moved, so stop it here.
+            return false
+          end
+
+        else
+          -- noting could be moved
+          return false
+        end
+
+      end
+    end
+  end
+
+  return true
+end
+
 local function can_insert_into_players_inventory(player, entity)
   local can_insert = false
   if entity.prototype and entity.prototype.mineable_properties and entity.prototype.mineable_properties.minable then
@@ -414,7 +608,6 @@ local function can_insert_into_players_inventory(player, entity)
   end
   return can_insert
 end
-
 
 local function try_deconstruct_tile(entity, player, state)
   if not force_match(entity, player, true) then
@@ -436,9 +629,27 @@ local function try_deconstruct_entity(entity, player, state)
     return false
   end
 
-  if can_insert_into_players_inventory(player, entity) then
-    return player.mine_entity(entity, false)
+  local success = false
+  local flying_text_infos = {}
+  local position = { x = entity.position.x, y = entity.position.y }
+  local surface = entity.surface
+  if move_inventories_of_entity_into_players_inventory(player, entity, flying_text_infos) then
+    if move_items_in_inserters_hand_into_players_inventory(player, entity, flying_text_infos) then
+      if move_items_on_belt_into_players_inventory(player, entity, flying_text_infos) then
+        if can_insert_into_players_inventory(player, entity) then
+          success = player.mine_entity(entity, false)
+        end
+      end
+    end
   end
+  -- HelpFunctions.log_it("flying_text_infos " .. serpent.block(flying_text_infos))
+  FlyingText.create_flying_text_entities(surface, position, flying_text_infos)
+  if flying_text_infos and next(flying_text_infos) then
+    --something has moved
+    player.play_sound({ path = "utility/inventory_move" })
+  end
+
+  return success
 end
 
 local build_actions = 
