@@ -7,43 +7,36 @@ local floor = math.floor
 
 local Scanner = {}
 
-local land_names_lookup = {}
-for _, name in pairs(Constants.LAND_NAMES) do
-  land_names_lookup[name] = true
-end
-
-local function position_to_key(pos)
-  return floor(pos.x) .. "_" .. floor(pos.y)
-end
-
-local function filter_and_annotate_entities(entities, existing_land_tiles_by_pos)
+---comment
+---@param surface LuaSurface
+---@param entities LuaEntity[]
+---@return table
+local function filter_and_annotate_entities(surface, entities)
   local filtered = {}
   local i = 1
 
   for _, entity in pairs(entities) do
-    if entity.valid then
-      local action_type = ActionTypes.get_action_type(entity)
-      if action_type > ActionTypes.NONE then
+    local action_type = ActionTypes.get_action_type(entity)
+    if action_type > ActionTypes.NONE then
 
-        local skip = false
-        if action_type == ActionTypes.TILE_GHOST then
-          if land_names_lookup[entity.ghost_name] then
-            local key = position_to_key(entity.position)
-            if existing_land_tiles_by_pos[key] then
-              skip = true
-            end
+      local skip = false
+      if action_type == ActionTypes.TILE_GHOST then
+        if Constants.LAND_NAMES[entity.ghost_name] then
+          local existing_tile = surface.get_tile(entity.position.x, entity.position.y)
+          if (Constants.LAND_NAMES[existing_tile.name]) then
+            skip = true
           end
         end
+      end
 
-        if not skip then
-          filtered[i] =
-          {
-            entity = entity,
-            position = entity.position,
-            action_type = action_type
-          }
-          i = i+1
-        end
+      if not skip then
+        filtered[i] =
+        {
+          entity = entity,
+          position = entity.position,
+          action_type = action_type
+        }
+        i = i+1
       end
     end
   end
@@ -55,22 +48,6 @@ local function generator(dims)
   local cx           = dims[2]
   local cy           = dims[3]
 
-  local area_tiles = {
-    left_top = {
-      x = cx * Constants.AREA_SIZE,
-      y = cy * Constants.AREA_SIZE,
-    },
-    right_bottom = {
-      x = (1 + cx) * Constants.AREA_SIZE,
-      y = (1 + cy) * Constants.AREA_SIZE,
-    },
-  }
-  local land_tiles = game.surfaces[surface_name].find_tiles_filtered
-    {
-      area = area_tiles,
-      name = Constants.LAND_NAMES
-    }
-
   local area_entities = {
     left_top = {
       x = cx * Constants.AREA_SIZE + 0.1,
@@ -81,47 +58,28 @@ local function generator(dims)
       y = (1 + cy) * Constants.AREA_SIZE - 0.1,
     },
   }
-  local entities = game.surfaces[surface_name].find_entities_filtered
-    {
-      area = area_entities
-    }
 
-  if HelpFunctions.check_severity(4) then
-    local tiles_short = ""
-    for _, tile in pairs(land_tiles) do
-      tiles_short = tiles_short .." ".. tile.name.."("..tile.position.x.."/"..tile.position.y..")"
-    end
+  local entities = game.surfaces[surface_name].find_entities(area_entities)
 
-    if tiles_short ~= "" then
-      HelpFunctions.log_it("found tiles: "..tiles_short)
-    end
-  end
+  -- if HelpFunctions.check_severity(4) then
+  --   local tile_ghosts_short = ""
+  --   for _, entity in pairs(entities) do
+  --     local action_type = ActionTypes.get_action_type(entity)
+  --     if action_type == ActionTypes.TILE_GHOST then
+  --       tile_ghosts_short = tile_ghosts_short .." ".. entity.ghost_name.."("..entity.position.x.."/"..entity.position.y..")"
+  --     end
+  --   end
 
-  if HelpFunctions.check_severity(4) then
-    local tile_ghosts_short = ""
-    for _, entity in pairs(entities) do
-      local action_type = ActionTypes.get_action_type(entity)
-      if action_type == ActionTypes.TILE_GHOST then
-        tile_ghosts_short = tile_ghosts_short .." ".. entity.ghost_name.."("..entity.position.x.."/"..entity.position.y..")"
-      end
-    end
+  --   if tile_ghosts_short ~= "" then
+  --     HelpFunctions.log_it("found tile ghosts: "..tile_ghosts_short)
+  --   end
+  -- end
 
-    if tile_ghosts_short ~= "" then
-      HelpFunctions.log_it("found tile ghosts: "..tile_ghosts_short)
-    end
-  end
+  local filtered_entities = filter_and_annotate_entities(game.surfaces[surface_name], entities)
 
-  local existing_land_tiles_by_pos = {}
-  for _, land_tile in pairs(land_tiles) do
-    local key = position_to_key(land_tile.position)
-    existing_land_tiles_by_pos[key] = true
-  end
-
-  local filtered_entities = filter_and_annotate_entities(entities, existing_land_tiles_by_pos)
-
-  if HelpFunctions.check_severity(3) then
-    HelpFunctions.log_it("generator found ("..#filtered_entities.."/"..#entities..") entities in chunk: "..serpent.line(dims))
-  end
+  -- if HelpFunctions.check_severity(3) then
+  --   HelpFunctions.log_it("generator found ("..#filtered_entities.."/"..#entities..") entities in chunk: "..serpent.line(dims))
+  -- end
 
   return filtered_entities
 end
@@ -144,15 +102,29 @@ local function spiral(radius)
   end
 end
 
+local function get_base_spiral_list(radius)
+  local base_spiral_list = {}
+  for x,y in spiral(radius) do
+    table.insert(base_spiral_list, {x=x, y=y})
+  end
+  return base_spiral_list
+end
+
+local base_spiral_lists = {}
 
 local function chunk_spiral(position, radius)
   local x1 = floor(position.x / Constants.AREA_SIZE)
   local y1 = floor(position.y / Constants.AREA_SIZE)
-  local s = spiral(ceil(radius / Constants.AREA_SIZE))
+  local chunk_radius = ceil(radius / Constants.AREA_SIZE)
+
+  base_spiral_lists[chunk_radius] = base_spiral_lists[chunk_radius] or get_base_spiral_list(chunk_radius)
+  local base_spiral_list = base_spiral_lists[chunk_radius]
+
+  local index, current = nil, nil
   return function()
-    local x, y = s()
-    if not x then return end
-    return x1 + x, y1 + y
+    index, current = next(base_spiral_list, index)
+    if not current then return end
+    return current.x+x1, current.y+y1
   end
 end
 
@@ -206,10 +178,10 @@ end
 
 local function find_candidates(cache, surface, position, distance, max)
   local entries = {}
-  local iter = chunk_spiral(position, distance)
+  local spiral_iter = chunk_spiral(position, distance)
   local i = 1
 
-  for cx, cy in iter do
+  for cx, cy in spiral_iter do
     local unfiltered = cache:get{surface, cx, cy}
     unfiltered = annotate_distances(unfiltered, position)
     local filtered = filter_cache_entries(unfiltered, distance)

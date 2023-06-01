@@ -7,7 +7,7 @@ local FlyingText = require "flying_text"
 
 local cache = NDCache.new(Scanner.generator)
 local player_state
-local cycle_length_in_ticks = settings.global["autobuild-cycle-length-in-ticks"].value
+local cycle_length_in_ticks = tonumber(settings.global["autobuild-cycle-length-in-ticks"].value) or 10
 
 local function get_player_state(player_index)
   local state = player_state[player_index]
@@ -55,7 +55,7 @@ local function change_visual_area(player, state, opacity)
     draw_on_ground = true,
     color = { r=(opacity/200), g=(opacity/200), b=0, a=(opacity/200) },
     left_top = player.character,
-    left_top_offset = { -radius, -radius },
+    left_top_offset = { -1*radius, -1*radius },
     right_bottom = player.character,
     right_bottom_offset = { radius, radius },
     players = { player },
@@ -87,7 +87,7 @@ local function on_character_swapped_event(event)
   local target = rendering.get_left_top(state.visual_area_id)
   if target and target.entity and target.entity.unit_number == event.old_unit_number then
     rendering.set_corners(state.visual_area_id,
-        event.new_character, { -radius, -radius },
+        event.new_character, { -1*radius, -1*radius },
         event.new_character, { radius, radius })
   end
 end
@@ -240,11 +240,11 @@ end
 script.on_event(defines.events.on_built_entity, entity_changed, {{ filter = "ghost" }})
 
 local function force_match(entity, player, including_neutral_force)
-  if not entity or not entity.valid or not entity.force or not entity.force.name then
+  if not entity.force or not entity.force.name then
     return false
   end
 
-  if not player or not player.valid or not player.force or not player.force.name then
+  if not player.force or not player.force.name then
     return false
   end
 
@@ -264,7 +264,7 @@ local function to_place(entity_name)
   local stacks = to_place_cache[entity_name]
   if not stacks then
     local prototype = game.entity_prototypes[entity_name] or game.tile_prototypes[entity_name]
-    stacks = prototype and prototype.items_to_place_this
+    stacks = prototype and prototype.items_to_place_this or {}
     for _, stack in pairs(stacks) do
       stack.prototype = game.item_prototypes[stack.name]
     end
@@ -316,7 +316,7 @@ local function try_revive_with_stack(ghost, player, stack_to_place)
     return false
   end
 
-  if not player.surface.can_place_entity {
+  if ghost.name == "entity-ghost" and not player.surface.can_place_entity {
       name = ghost.ghost_name,
       position = ghost.position,
       direction = ghost.direction,
@@ -704,7 +704,7 @@ local function try_candidate(entry, player, state)
 
   -- don't check, if setting "ignore_other_robots" is enabled to save on performance
   if not state.ignore_other_robots then
-    local force_name = player and player.force and player.force.name
+    local force_name = player.force.name
 
     if get_assigned_to_other_robot(entity, action_type, force_name) then
       return false
@@ -756,11 +756,11 @@ local function do_autobuild(state, player)
       if try_candidate(candidate, player, state) then
         remainingActions = remainingActions - 1
         state.last_successful_build_tick = game.tick
-        if HelpFunctions.check_severity(5) then
-          HelpFunctions.log_it(string.format("cycle: %d: %s on position: %d/%d",
-              state.current_cycle, ActionTypes.get_action_verb(candidate.action_type),
-              candidate.position.x, candidate.position.y))
-        end
+        -- if HelpFunctions.check_severity(5) then
+        --   HelpFunctions.log_it(string.format("cycle: %d: %s on position: %d/%d",
+        --       state.current_cycle, ActionTypes.get_action_verb(candidate.action_type),
+        --       candidate.position.x, candidate.position.y))
+        -- end
       end
     end
   until (not candidate) or (remainingActions == 0)
@@ -776,30 +776,28 @@ end
 -- Also, the building candidates are getting reordered according to action_type and player position.
 -- returns true -> yes: recheck
 -- returns false -> no: don't recheck, build further on the old location 
-local function needs_recheck(player, state)
+local function needs_recheck(state)
   -- increment current_cycle
-  local current_cycle = (state.current_cycle or 0)
-  state.current_cycle = current_cycle + 1
+  state.current_cycle = (state.current_cycle or 0) + 1
 
   -- increment motionless cycle, which gets reset, when player moves.
-  local motionless_cycles = (state.motionless_cycles or 0)
-  state.motionless_cycles = motionless_cycles + 1
+  state.motionless_cycles = (state.motionless_cycles or 0) + 1
 
   if force_recheck then
-    if HelpFunctions.check_severity(3) then HelpFunctions.log_it(string.format("cycle: %d: force recheck", current_cycle)) end
+    --if HelpFunctions.check_severity(3) then HelpFunctions.log_it(string.format("cycle: %d: force recheck", state.current_cycle)) end
     return true -- force recheck
   end
 
   -- always recheck once every 12 (idle_cycles_before_recheck) cycles, regardless of other conditions
-  local is_recheck_cycle = (current_cycle % state.idle_cycles_before_recheck) == 0
+  local is_recheck_cycle = (state.current_cycle % state.idle_cycles_before_recheck) == 0
   if is_recheck_cycle then
-    if HelpFunctions.check_severity(4) then HelpFunctions.log_it(string.format("cycle: %d: recheck regular cycle", current_cycle)) end
+    --if HelpFunctions.check_severity(4) then HelpFunctions.log_it(string.format("cycle: %d: recheck regular cycle", state.current_cycle)) end
     return true -- recheck cycle
   end
 
   -- if player is standing still, no recheck
-  if motionless_cycles >= 1 then
-    if HelpFunctions.check_severity(4) then HelpFunctions.log_it(string.format("cycle: %d: no recheck: not moved recently", current_cycle)) end
+  if state.motionless_cycles >= 1 then
+    --if HelpFunctions.check_severity(4) then HelpFunctions.log_it(string.format("cycle: %d: no recheck: not moved recently", state.current_cycle)) end
     return false --no recheck
   end
 
@@ -810,23 +808,28 @@ local function needs_recheck(player, state)
     local ticks_since_last_successful_build = game.tick - state.last_successful_build_tick
 
     if ticks_since_last_successful_build >= 300 then -- 5 sec.
-      if HelpFunctions.check_severity(3) then HelpFunctions.log_it(string.format("cycle: %d: no recheck: not built recently", current_cycle)) end
+      --if HelpFunctions.check_severity(3) then HelpFunctions.log_it(string.format("cycle: %d: no recheck: not built recently", state.current_cycle)) end
       return false--no recheck
     end
   end
 
-  if HelpFunctions.check_severity(3) then HelpFunctions.log_it(string.format("cycle: %d: recheck normal", current_cycle)) end
+  --if HelpFunctions.check_severity(3) then HelpFunctions.log_it(string.format("cycle: %d: recheck normal", state.current_cycle)) end
   return true
 end
 
-local god_controller = defines.controllers.god
-local character_controller = defines.controllers.character
+local allowed_controllers =
+{
+  [defines.controllers.god] = true,
+  [defines.controllers.character] = true,
+}
+
+---comment
+---@param player LuaPlayer
 local function handle_player_update(player)
   local state = get_player_state(player.index)
   if not state.enable_construction then return end
 
-  local controller = player.controller_type
-  if controller ~= god_controller and controller ~= character_controller then
+  if not allowed_controllers[player.controller_type] then
     -- don't allow spectators or characters awaiting respawn to act
     return
   end
@@ -836,7 +839,7 @@ local function handle_player_update(player)
     return
   end
 
-  if needs_recheck(player, state) then
+  if needs_recheck(state) then
     -- player has moved
     -- or once every 12 cycles (state.idle_cycles_before_recheck)
     state.build_candidates = nil
@@ -862,14 +865,19 @@ local function update_cycle(event)
   force_recheck = false
 end
 
+---@diagnostic disable-next-line: param-type-mismatch
 script.on_nth_tick(cycle_length_in_ticks, update_cycle)
 
-script.on_event(defines.events.on_runtime_mod_setting_changed, function(event)
+---comment
+---@param event EventData.on_runtime_mod_setting_changed
+local function on_runtime_mod_setting_changed(event)
   if event.setting == "autobuild-cycle-length-in-ticks" then
     --unregister with old value
+---@diagnostic disable-next-line: param-type-mismatch
     script.on_nth_tick(cycle_length_in_ticks, nil)
-    cycle_length_in_ticks = settings.global[event.setting].value
+    cycle_length_in_ticks = tonumber(settings.global[event.setting].value) or 10
     --register with new value
+---@diagnostic disable-next-line: param-type-mismatch
     script.on_nth_tick(cycle_length_in_ticks, update_cycle)
 
   elseif event.setting == "autobuild-log-level" then
@@ -899,5 +907,6 @@ script.on_event(defines.events.on_runtime_mod_setting_changed, function(event)
     state.build_while_in_combat = settings.get_player_settings(event.player_index)[event.setting].value
 
   end
+end
 
-end)
+script.on_event(defines.events.on_runtime_mod_setting_changed, on_runtime_mod_setting_changed)

@@ -1,12 +1,14 @@
 ---------------------------------------------------------------------------------------------------
 Version: 0.5.7
-Date: 2023-05-31
+Date: 2023-06-01
   Changes:
     - Support upgrading direction of entites
     - Pick up inventories of entities/items on belts/items in hand of insertes first before picking up the entity. Always check, if it fits.
+    - Improve Performance issues detected by profiling
   Bugfixes:
     - Check, if entity can be placed before reviving.
     - Fix crash, when the rendering object of visual area is somehow not valid before accessing. F.e. happens, when switching to editor mode and back
+    - Fix code issues detected by FMTK
 ---------------------------------------------------------------------------------------------------
 Version: 0.5.6
 Date: 2023-05-30
