@@ -24,7 +24,7 @@ local function filter_and_annotate_entities(entities, existing_land_tiles_by_pos
     if entity.valid then
       local action_type = ActionTypes.get_action_type(entity)
       if action_type > ActionTypes.NONE then
-        
+
         local skip = false
         if action_type == ActionTypes.TILE_GHOST then
           if land_names_lookup[entity.ghost_name] then
@@ -34,9 +34,9 @@ local function filter_and_annotate_entities(entities, existing_land_tiles_by_pos
             end
           end
         end
-        
+
         if not skip then
-          filtered[i] = 
+          filtered[i] =
           {
             entity = entity,
             position = entity.position,
@@ -54,7 +54,7 @@ local function generator(dims)
   local surface_name = dims[1]
   local cx           = dims[2]
   local cy           = dims[3]
-  
+
   local area_tiles = {
     left_top = {
       x = cx * Constants.AREA_SIZE,
@@ -65,9 +65,9 @@ local function generator(dims)
       y = (1 + cy) * Constants.AREA_SIZE,
     },
   }
-  local land_tiles = game.surfaces[surface_name].find_tiles_filtered 
-    { 
-      area = area_tiles, 
+  local land_tiles = game.surfaces[surface_name].find_tiles_filtered
+    {
+      area = area_tiles,
       name = Constants.LAND_NAMES
     }
 
@@ -81,33 +81,33 @@ local function generator(dims)
       y = (1 + cy) * Constants.AREA_SIZE - 0.1,
     },
   }
-  local entities = game.surfaces[surface_name].find_entities_filtered 
-    { 
+  local entities = game.surfaces[surface_name].find_entities_filtered
+    {
       area = area_entities
     }
 
   if HelpFunctions.check_severity(4) then
     local tiles_short = ""
-    for _, tile in pairs(land_tiles) do  
+    for _, tile in pairs(land_tiles) do
       tiles_short = tiles_short .." ".. tile.name.."("..tile.position.x.."/"..tile.position.y..")"
     end
 
-    if tiles_short ~= "" then 
-      HelpFunctions.log_it("found tiles: "..tiles_short) 
+    if tiles_short ~= "" then
+      HelpFunctions.log_it("found tiles: "..tiles_short)
     end
   end
 
-  if HelpFunctions.check_severity(4) then 
+  if HelpFunctions.check_severity(4) then
     local tile_ghosts_short = ""
-    for _, entity in pairs(entities) do 
+    for _, entity in pairs(entities) do
       local action_type = ActionTypes.get_action_type(entity)
       if action_type == ActionTypes.TILE_GHOST then
         tile_ghosts_short = tile_ghosts_short .." ".. entity.ghost_name.."("..entity.position.x.."/"..entity.position.y..")"
       end
     end
 
-    if tile_ghosts_short ~= "" then 
-      HelpFunctions.log_it("found tile ghosts: "..tile_ghosts_short) 
+    if tile_ghosts_short ~= "" then
+      HelpFunctions.log_it("found tile ghosts: "..tile_ghosts_short)
     end
   end
 
@@ -119,8 +119,10 @@ local function generator(dims)
 
   local filtered_entities = filter_and_annotate_entities(entities, existing_land_tiles_by_pos)
 
-  if HelpFunctions.check_severity(3) then HelpFunctions.log_it("generator found ("..#filtered_entities.."/"..#entities..") entities in chunk: "..serpent.line(dims)) end
-  
+  if HelpFunctions.check_severity(3) then
+    HelpFunctions.log_it("generator found ("..#filtered_entities.."/"..#entities..") entities in chunk: "..serpent.line(dims))
+  end
+
   return filtered_entities
 end
 
@@ -194,7 +196,7 @@ local function by_action_type(entry1, entry2)
   return 0
 end
 
-local function sort_order(entry1, entry2) 
+local function sort_order(entry1, entry2)
   local by_action_type_result = by_action_type(entry1, entry2)
   if by_action_type_result == 0 then
     return by_distance(entry1, entry2) < 0
@@ -206,7 +208,7 @@ local function find_candidates(cache, surface, position, distance, max)
   local entries = {}
   local iter = chunk_spiral(position, distance)
   local i = 1
-  
+
   for cx, cy in iter do
     local unfiltered = cache:get{surface, cx, cy}
     unfiltered = annotate_distances(unfiltered, position)

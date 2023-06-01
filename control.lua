@@ -20,7 +20,7 @@ local function get_player_state(player_index)
     state.visual_area_opacity = settings.get_player_settings(player_index)["autobuild-visual-area-opacity"].value
     state.ignore_other_robots = settings.get_player_settings(player_index)["autobuild-ignore-other-robots"].value
     state.build_while_in_combat = settings.get_player_settings(player_index)["autobuild-build-while-in-combat"].value
-    
+
     state.last_successful_build_tick = 0
 
     player_state[player_index] = state
@@ -29,7 +29,7 @@ local function get_player_state(player_index)
 end
 
 local function change_visual_area(player, state, opacity)
-  
+
   if state.visual_area_id then
     if rendering.is_valid(state.visual_area_id) then
       rendering.destroy(state.visual_area_id)
@@ -41,7 +41,7 @@ local function change_visual_area(player, state, opacity)
   -- player.print("opacity ".. (opacity or "nil"))
   -- player.print("player.character "..serpent.block(player.character))
   -- player.print("build_distance "..(state.build_distance or "nil"))
-  
+
   if not state.enable_visual_area then return end
   if not opacity or opacity <= 0 then return end
   if not player.character then return end
@@ -68,7 +68,7 @@ end
 --   old_unit_number
 --   new_character
 --   old_character
-function on_character_swapped_event(event)
+local function on_character_swapped_event(event)
   -- attach visual area to the new character
   local player = event and event.new_character and event.new_character.player
   if not player then return end
@@ -79,15 +79,15 @@ function on_character_swapped_event(event)
   if not state.build_distance then return end
 
   local radius = state.build_distance + 0.5
-  if not rendering.is_valid(state.visual_area_id) then 
+  if not rendering.is_valid(state.visual_area_id) then
     state.visual_area_id = nil
-    return 
+    return
   end
 
   local target = rendering.get_left_top(state.visual_area_id)
   if target and target.entity and target.entity.unit_number == event.old_unit_number then
-    rendering.set_corners(state.visual_area_id, 
-        event.new_character, { -radius, -radius }, 
+    rendering.set_corners(state.visual_area_id,
+        event.new_character, { -radius, -radius },
         event.new_character, { radius, radius })
   end
 end
@@ -114,7 +114,7 @@ local function on_configuration_changed()
               and player.is_shortcut_toggled(construction_toggle_name) then
       player.set_shortcut_toggled(construction_toggle_name, false)
     end
-  end 
+  end
   global.player_state = {}
   cache = NDCache.new(Scanner.generator)
   on_load()
@@ -126,7 +126,7 @@ local function toggle_enabled_construction(player)
   local enable = not state.enable_construction
 
   state.enable_construction = enable
-  
+
   state.build_candidates = nil
   state.candidate_iter = nil
 
@@ -136,7 +136,7 @@ local function toggle_enabled_construction(player)
     state.surface_name = player.surface.name
     state.position = player.position
     state.build_distance = player.build_distance
-    
+
     change_visual_area(player, state, state.visual_area_opacity)
   else
     state.surface_name = nil
@@ -160,7 +160,7 @@ end
 local function toggle_enabled_tiles(player)
   local state = get_player_state(player.index)
   local enable = not state.enable_tiles
-  
+
   state.enable_tiles = enable
 
   if enable then
@@ -193,7 +193,7 @@ local function entity_built(event)
   local entity = event.entity or event.destination
   local action_type = ActionTypes.get_action_type(entity)
   if action_type == ActionTypes.ENTITY_GHOST or action_type == ActionTypes.TILE_GHOST then
-    
+
     cache:invalidate(entity_chunk_key(entity))
     force_recheck = true
   end
@@ -239,12 +239,12 @@ end
 
 script.on_event(defines.events.on_built_entity, entity_changed, {{ filter = "ghost" }})
 
-function force_match(entity, player, including_neutral_force)
+local function force_match(entity, player, including_neutral_force)
   if not entity or not entity.valid or not entity.force or not entity.force.name then
     return false
   end
 
-  if notplayer or not player.valid or not player.force or not player.force.name then
+  if not player or not player.valid or not player.force or not player.force.name then
     return false
   end
 
@@ -316,12 +316,12 @@ local function try_revive_with_stack(ghost, player, stack_to_place)
     return false
   end
 
-  if not player.surface.can_place_entity { 
-      name = ghost.ghost_name, 
-      position = ghost.position, 
-      direction = ghost.direction, 
-      force = ghost.force 
-    } 
+  if not player.surface.can_place_entity {
+      name = ghost.ghost_name,
+      position = ghost.position,
+      direction = ghost.direction,
+      force = ghost.force
+    }
   then
     return false
   end
@@ -345,7 +345,7 @@ local function try_revive_with_stack(ghost, player, stack_to_place)
 end
 
 local function try_upgrade_with_stack(entity, target_name, player, stack_to_place)
-  
+
   if not entity.valid then
     return false
   end
@@ -371,7 +371,7 @@ local function try_upgrade_with_stack(entity, target_name, player, stack_to_plac
     player.remove_item(stack_to_place)
     return true
   end
-  
+
   return false
 end
 
@@ -397,7 +397,7 @@ local function try_upgrade_single_entity(entity, player)
   local target_proto = entity.get_upgrade_target()
   if not target_proto then return false end
   local target_name = target_proto.name
-  
+
   if entity.name == target_name then
     -- same entity name: f.e. upgrade belt to belt
     local direction = entity.get_upgrade_direction()
@@ -407,7 +407,7 @@ local function try_upgrade_single_entity(entity, player)
       entity.cancel_upgrade(player.force, player)
       return true
     end
-  else  
+  else
     local stacks_to_place = to_place(target_name)
     for _, stack_to_place in pairs(stacks_to_place) do
       if try_upgrade_with_stack(entity, target_name, player, stack_to_place) then
@@ -415,7 +415,7 @@ local function try_upgrade_single_entity(entity, player)
       end
     end
   end
-  
+
   return false
 end
 
@@ -440,19 +440,19 @@ local function try_upgrade(entity, player, state)
 end
 
 local function move_inventories_of_entity_into_players_inventory(player, entity, flying_text_infos)
-  
+
   if not entity.has_items_inside() then
     -- entity has no items inside
     return true
   end
 
   local max_index = entity.get_max_inventory_index()
-  if not max_index then 
+  if not max_index then
     -- entity has no inventory
-    return true 
+    return true
   end
 
-  for index = 1, max_index do 
+  for index = 1, max_index do
     local inventory = entity.get_inventory(index)
     if inventory then
       for name, count in pairs(inventory.get_contents()) do
@@ -463,13 +463,13 @@ local function move_inventories_of_entity_into_players_inventory(player, entity,
             stack.count = actually_inserted
             inventory.remove(stack)
             -- HelpFunctions.log_it("moved " .. actually_inserted .." of " .. name)
-            flying_text_infos[name] = 
+            flying_text_infos[name] =
             {
               amount = (flying_text_infos[name] and flying_text_infos[name].amount or 0) + actually_inserted,
-              total = player.get_item_count(name) or 0 
+              total = player.get_item_count(name) or 0
             }
           end
-          
+
           if actually_inserted < count then
             -- not all items could be moved, so stop it here.
             return false
@@ -487,7 +487,7 @@ local function move_inventories_of_entity_into_players_inventory(player, entity,
   return true
 end
 
-local inserter_types = 
+local inserter_types =
 {
   ["inserter"] = true,
 }
@@ -499,7 +499,7 @@ local function move_items_in_inserters_hand_into_players_inventory(player, entit
   end
 
   local held_stack = entity.held_stack
-  
+
   if not held_stack then
     return true
   end
@@ -515,10 +515,10 @@ local function move_items_in_inserters_hand_into_players_inventory(player, entit
   if player.can_insert(stack) then
     local actually_inserted = player.insert(stack)
     if actually_inserted > 0 then
-      flying_text_infos[name] = 
+      flying_text_infos[name] =
       {
         amount = (flying_text_infos[name] and flying_text_infos[name].amount or 0) + actually_inserted,
-        total = player.get_item_count(name) or 0 
+        total = player.get_item_count(name) or 0
       }
 
       if actually_inserted == count then
@@ -537,7 +537,7 @@ local function move_items_in_inserters_hand_into_players_inventory(player, entit
   return true
 end
 
-local belt_types = 
+local belt_types =
 {
   ["transport-belt"] = true,
   ["splitter"] = true,
@@ -552,12 +552,12 @@ local function move_items_on_belt_into_players_inventory(player, entity, flying_
 
   local max_index = entity.get_max_transport_line_index()
 
-  if not max_index then 
+  if not max_index then
     -- entity has no transport lines
-    return true 
+    return true
   end
 
-  for index = 1, max_index do 
+  for index = 1, max_index do
     local transport_line = entity.get_transport_line(index)
     if transport_line then
       for name, count in pairs(transport_line.get_contents()) do
@@ -567,10 +567,10 @@ local function move_items_on_belt_into_players_inventory(player, entity, flying_
           if actually_inserted > 0 then
             stack.count = actually_inserted
             transport_line.remove_item(stack)
-            flying_text_infos[name] = 
+            flying_text_infos[name] =
             {
               amount = (flying_text_infos[name] and flying_text_infos[name].amount or 0) + actually_inserted,
-              total = player.get_item_count(name) or 0 
+              total = player.get_item_count(name) or 0
             }
           end
 
@@ -613,7 +613,7 @@ local function try_deconstruct_tile(entity, player, state)
   if not force_match(entity, player, true) then
     return false
   end
-  
+
   if entity.to_be_deconstructed(player.force.name) then
     local position = entity.position
     local tile = entity.surface.get_tile(position.x, position.y)
@@ -652,7 +652,7 @@ local function try_deconstruct_entity(entity, player, state)
   return success
 end
 
-local build_actions = 
+local build_actions =
 {
   [ActionTypes.DECONSTRUCT] = try_deconstruct_entity,
   [ActionTypes.DECONSTRUCT_TILE] = try_deconstruct_tile,
@@ -662,7 +662,7 @@ local build_actions =
 }
 
 local function get_assigned_to_other_robot(entity, action_type, force_name)
-  
+
   if action_type == ActionTypes.DECONSTRUCT or action_type == ActionTypes.DECONSTRUCT_TILE then
     -- is_registered_for_deconstruction(force) -> boolean 
     -- Is this entity registered for deconstruction with this force? 
@@ -670,14 +670,14 @@ local function get_assigned_to_other_robot(entity, action_type, force_name)
     -- or it is not marked for deconstruction. 
     -- The complexity is effectively O(1) - it depends on the number of objects targeting this entity which should be small enough.
     return not entity.is_registered_for_deconstruction(force_name or "no_force")
-  
+
   elseif action_type == ActionTypes.ENTITY_GHOST or action_type == ActionTypes.TILE_GHOST then
     -- is_registered_for_construction() -> boolean 
     -- Is this entity or tile ghost or item request proxy registered for construction? 
     -- If false, it means a construction robot has been dispatched to build the entity, 
     -- or it is not an entity that can be constructed.
     return not entity.is_registered_for_construction()
-  
+
   elseif action_type == ActionTypes.UPGRADE then
     -- is_registered_for_upgrade() -> boolean
     -- Is this entity registered for upgrade? 
@@ -704,7 +704,7 @@ local function try_candidate(entry, player, state)
 
   -- don't check, if setting "ignore_other_robots" is enabled to save on performance
   if not state.ignore_other_robots then
-    local force_name = player and player.force and player.force.name 
+    local force_name = player and player.force and player.force.name
 
     if get_assigned_to_other_robot(entity, action_type, force_name) then
       return false
@@ -712,7 +712,7 @@ local function try_candidate(entry, player, state)
   end
 
   local build_action = build_actions[entry.action_type]
-  if build_action then 
+  if build_action then
     return build_action(entity, player, state)
   end
 
@@ -720,7 +720,7 @@ local function try_candidate(entry, player, state)
 end
 
 local function get_candidates(state)
-  
+
   local candidates = state.build_candidates
   if candidates then
     return candidates
@@ -740,7 +740,7 @@ local function get_candidates(state)
 
   state.build_candidates = candidates
   state.candidate_iter = nil
-  
+
   return candidates
 end
 
@@ -778,13 +778,13 @@ end
 -- returns false -> no: don't recheck, build further on the old location 
 local function needs_recheck(player, state)
   -- increment current_cycle
-  local current_cycle = (state.current_cycle or 0) 
+  local current_cycle = (state.current_cycle or 0)
   state.current_cycle = current_cycle + 1
-  
+
   -- increment motionless cycle, which gets reset, when player moves.
-  local motionless_cycles = (state.motionless_cycles or 0) 
+  local motionless_cycles = (state.motionless_cycles or 0)
   state.motionless_cycles = motionless_cycles + 1
-  
+
   if force_recheck then
     if HelpFunctions.check_severity(3) then HelpFunctions.log_it(string.format("cycle: %d: force recheck", current_cycle)) end
     return true -- force recheck
@@ -796,16 +796,16 @@ local function needs_recheck(player, state)
     if HelpFunctions.check_severity(4) then HelpFunctions.log_it(string.format("cycle: %d: recheck regular cycle", current_cycle)) end
     return true -- recheck cycle
   end
-    
+
   -- if player is standing still, no recheck
-  if motionless_cycles >= 1 then 
+  if motionless_cycles >= 1 then
     if HelpFunctions.check_severity(4) then HelpFunctions.log_it(string.format("cycle: %d: no recheck: not moved recently", current_cycle)) end
     return false --no recheck
-  end 
+  end
 
   -- this is a pause state, which can only be left by the recheck cycle every 12 (idle_cycles_before_recheck) cycles (and if new building candidates are detected)
   -- no recheck, if 5 sec. has been past, without any successful building action.
-  if not is_building_phase then
+  if not state.is_building_phase then
 
     local ticks_since_last_successful_build = game.tick - state.last_successful_build_tick
 
@@ -831,9 +831,9 @@ local function handle_player_update(player)
     return
   end
 
-  if not state.build_while_in_combat and player.in_combat then 
+  if not state.build_while_in_combat and player.in_combat then
     -- don't build while in combat only when setting is enabled
-    return 
+    return
   end
 
   if needs_recheck(player, state) then
@@ -852,10 +852,10 @@ local function handle_player_update(player)
   -- build on last position, if recheck was not necessary
   if state.is_building_phase then
     do_autobuild(state, player)
-  end 
+  end
 end
 
-function update_cycle(event)
+local function update_cycle(event)
   for _, player in pairs(game.connected_players) do
     handle_player_update(player)
   end
@@ -871,14 +871,14 @@ script.on_event(defines.events.on_runtime_mod_setting_changed, function(event)
     cycle_length_in_ticks = settings.global[event.setting].value
     --register with new value
     script.on_nth_tick(cycle_length_in_ticks, update_cycle)
-  
+
   elseif event.setting == "autobuild-log-level" then
     HelpFunctions.log_level = settings.global[event.setting].value
 
   elseif event.setting == "autobuild-actions-per-cycle" then
     local state = get_player_state(event.player_index)
     state.actions_per_cycle = settings.get_player_settings(event.player_index)[event.setting].value
-  
+
   elseif event.setting == "autobuild-idle-cycles-before-recheck" then
     local state = get_player_state(event.player_index)
     state.idle_cycles_before_recheck = settings.get_player_settings(event.player_index)[event.setting].value
@@ -897,7 +897,7 @@ script.on_event(defines.events.on_runtime_mod_setting_changed, function(event)
   elseif event.setting == "autobuild-build-while-in-combat" then
     local state = get_player_state(event.player_index)
     state.build_while_in_combat = settings.get_player_settings(event.player_index)[event.setting].value
-    
+
   end
 
 end)
