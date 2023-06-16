@@ -75,12 +75,21 @@ table.insert(settings,
 table.insert(settings,
     {
         type = "int-setting",
+        name = "autobuild-deconstruct-max-items",
+        order = "ec",
+        setting_type = "runtime-per-user",
+        default_value = 0,
+    })
+
+table.insert(settings,
+    {
+        type = "int-setting",
         name = "autobuild-log-level",
         order = "z",
         setting_type = "runtime-global",
-        default_value = 0, 
+        default_value = 0,
         minimum_value = 0,
-        maximum_value = 5, 
+        maximum_value = 5,
     })
 
 data:extend(settings)

@@ -9,6 +9,11 @@ local cache = NDCache.new(Scanner.generator)
 local player_state
 local cycle_length_in_ticks = tonumber(settings.global["autobuild-cycle-length-in-ticks"].value) or 10
 
+local SUCCESS_DONE_ALL = 1
+local SUCCESS_DONE_NOTHING = 2
+local SUCCESS_DONE_PARTIALLY = 3
+local UNSUCCESS_SKIP = 4
+
 local function get_player_state(player_index)
   local state = player_state[player_index]
   if not state then
@@ -20,6 +25,7 @@ local function get_player_state(player_index)
     state.visual_area_opacity = settings.get_player_settings(player_index)["autobuild-visual-area-opacity"].value
     state.ignore_other_robots = settings.get_player_settings(player_index)["autobuild-ignore-other-robots"].value
     state.build_while_in_combat = settings.get_player_settings(player_index)["autobuild-build-while-in-combat"].value
+    state.deconstruct_max_items = settings.get_player_settings(player_index)["autobuild-deconstruct-max-items"].value
 
     state.last_successful_build_tick = 0
 
@@ -309,11 +315,11 @@ end
 
 local function try_revive_with_stack(ghost, player, stack_to_place)
   if player.get_item_count(stack_to_place.name) < stack_to_place.count then
-    return false
+    return UNSUCCESS_SKIP
   end
 
   if not ghost.valid then
-    return false
+    return UNSUCCESS_SKIP
   end
 
   if ghost.name == "entity-ghost" and not player.surface.can_place_entity {
@@ -323,14 +329,16 @@ local function try_revive_with_stack(ghost, player, stack_to_place)
       force = ghost.force
     }
   then
-    return false
+    return UNSUCCESS_SKIP
   end
 
   local items, entity, request_proxy = ghost.revive{
     return_item_request_proxy = true,
     raise_revive = true,
   }
-  if not items then return false end
+  if not items then
+    return UNSUCCESS_SKIP
+  end
 
   for name, count in pairs(items) do
     insert_or_spill(player, entity, name, count)
@@ -341,17 +349,20 @@ local function try_revive_with_stack(ghost, player, stack_to_place)
     try_insert_requested(entity, request_proxy, player)
   end
 
-  return items ~= nil
+  if items ~= nil then
+    return SUCCESS_DONE_ALL
+  end
+  return UNSUCCESS_SKIP
 end
 
 local function try_upgrade_with_stack(entity, target_name, player, stack_to_place)
 
   if not entity.valid then
-    return false
+    return UNSUCCESS_SKIP
   end
 
   if player.get_item_count(stack_to_place.name) < stack_to_place.count then
-    return false
+    return UNSUCCESS_SKIP
   end
 
   local new_entity = entity.surface.create_entity{
@@ -369,33 +380,39 @@ local function try_upgrade_with_stack(entity, target_name, player, stack_to_plac
 
   if new_entity then
     player.remove_item(stack_to_place)
-    return true
+    return SUCCESS_DONE_ALL
   end
 
-  return false
+  return UNSUCCESS_SKIP
 end
 
 local function try_revive_entity(entity, player, state)
   if not force_match(entity, player, false) then
-    return false
+    return UNSUCCESS_SKIP
   end
 
   local stacks_to_place = to_place(entity.ghost_name)
   for _, stack_to_place in pairs(stacks_to_place) do
-    local success = try_revive_with_stack(entity, player, stack_to_place)
-    if success then return success end
+    if try_revive_with_stack(entity, player, stack_to_place) == SUCCESS_DONE_ALL then
+      return SUCCESS_DONE_ALL
+    end
   end
+  return UNSUCCESS_SKIP
 end
 
 local function try_revive_tile(entity, player, state)
   if state.enable_tiles then
     return try_revive_entity(entity, player, state)
   end
+  return UNSUCCESS_SKIP
 end
 
 local function try_upgrade_single_entity(entity, player)
   local target_proto = entity.get_upgrade_target()
-  if not target_proto then return false end
+  if not target_proto then
+    return UNSUCCESS_SKIP
+  end
+
   local target_name = target_proto.name
 
   if entity.name == target_name then
@@ -405,29 +422,35 @@ local function try_upgrade_single_entity(entity, player)
     if entity.direction ~= direction then
       entity.direction = direction
       entity.cancel_upgrade(player.force, player)
-      return true
+      return SUCCESS_DONE_ALL
     end
   else
     local stacks_to_place = to_place(target_name)
     for _, stack_to_place in pairs(stacks_to_place) do
-      if try_upgrade_with_stack(entity, target_name, player, stack_to_place) then
-        return true
+      if try_upgrade_with_stack(entity, target_name, player, stack_to_place) == SUCCESS_DONE_ALL then
+        return SUCCESS_DONE_ALL
       end
     end
   end
 
-  return false
+  return UNSUCCESS_SKIP
 end
 
 local function try_upgrade_paired_entity(entity, other_entity, player)
-  local success = try_upgrade_single_entity(entity, player)
-  local other_success = try_upgrade_single_entity(other_entity, player)
-  return success or other_success
+  if try_upgrade_single_entity(entity, player) == UNSUCCESS_SKIP then
+    return UNSUCCESS_SKIP
+  end
+
+  if try_upgrade_single_entity(other_entity, player) == UNSUCCESS_SKIP then
+    return UNSUCCESS_SKIP
+  end
+
+  return SUCCESS_DONE_ALL
 end
 
 local function try_upgrade(entity, player, state)
   if not force_match(entity, player, false) then
-    return false
+    return UNSUCCESS_SKIP
   end
 
   if entity.type == "underground-belt" and entity.neighbours then
@@ -439,27 +462,48 @@ local function try_upgrade(entity, player, state)
   end
 end
 
-local function move_inventories_of_entity_into_players_inventory(player, entity, flying_text_infos)
+local function move_inventories_of_entity_into_players_inventory(player, entity, max_actions, flying_text_infos)
 
   if not entity.has_items_inside() then
     -- entity has no items inside
-    return true
+    return SUCCESS_DONE_NOTHING
   end
 
   local max_index = entity.get_max_inventory_index()
   if not max_index then
     -- entity has no inventory
-    return true
+    return SUCCESS_DONE_NOTHING
   end
+
+  if max_actions and max_actions <= 0 then
+    return UNSUCCESS_SKIP
+  end
+  local remaining_actions = max_actions
+  local done_something = false
 
   for index = 1, max_index do
     local inventory = entity.get_inventory(index)
     if inventory then
       for name, count in pairs(inventory.get_contents()) do
-        local stack = { name = name, count = count }
+        local max_count = count
+        if remaining_actions then
+          if remaining_actions <= 0 then
+            break
+          end
+
+          if remaining_actions < count then
+            max_count = remaining_actions
+            remaining_actions = 0
+          else
+            remaining_actions = remaining_actions - count
+          end
+        end
+
+        local stack = { name = name, count = max_count }
         if player.can_insert(stack) then
           local actually_inserted = player.insert(stack)
           if actually_inserted > 0 then
+            done_something = true
             stack.count = actually_inserted
             inventory.remove(stack)
             -- HelpFunctions.log_it("moved " .. actually_inserted .." of " .. name)
@@ -470,21 +514,31 @@ local function move_inventories_of_entity_into_players_inventory(player, entity,
             }
           end
 
-          if actually_inserted < count then
+          if actually_inserted < max_count then
             -- not all items could be moved, so stop it here.
-            return false
+            return SUCCESS_DONE_PARTIALLY
           end
 
         else
-          -- noting could be moved
-          return false
+          -- could not be inserted
+          if done_something then
+            -- something was moved before
+            return SUCCESS_DONE_PARTIALLY
+          end
+          return UNSUCCESS_SKIP
         end
 
       end
     end
   end
 
-  return true
+  if done_something then
+    if remaining_actions and remaining_actions <= 0 then
+      return SUCCESS_DONE_PARTIALLY
+    end
+    return SUCCESS_DONE_ALL
+  end
+  return SUCCESS_DONE_NOTHING
 end
 
 local inserter_types =
@@ -492,49 +546,73 @@ local inserter_types =
   ["inserter"] = true,
 }
 
-local function move_items_in_inserters_hand_into_players_inventory(player, entity, flying_text_infos)
+local function move_items_in_inserters_hand_into_players_inventory(player, entity, max_actions, flying_text_infos)
   if not inserter_types[entity.type] then
     -- entity not an inserter
-    return true
+    return SUCCESS_DONE_NOTHING
   end
 
   local held_stack = entity.held_stack
 
   if not held_stack then
-    return true
+    return SUCCESS_DONE_NOTHING
   end
 
   if not held_stack.valid_for_read then
-    return true
+    return SUCCESS_DONE_NOTHING
   end
+
+  if max_actions and max_actions <= 0 then
+    return UNSUCCESS_SKIP
+  end
+  local remaining_actions = max_actions
+  local done_something = false
 
   local name = held_stack.name
   local count = held_stack.count
 
-  local stack = { name = name, count = count }
+  local max_count = count
+  if remaining_actions then
+    if remaining_actions < count then
+      max_count = remaining_actions
+      remaining_actions = 0
+    else
+      remaining_actions = remaining_actions - count
+    end
+  end
+
+  local stack = { name = name, count = max_count }
   if player.can_insert(stack) then
     local actually_inserted = player.insert(stack)
     if actually_inserted > 0 then
+      done_something = true
       flying_text_infos[name] =
       {
         amount = (flying_text_infos[name] and flying_text_infos[name].amount or 0) + actually_inserted,
         total = player.get_item_count(name) or 0
       }
 
-      if actually_inserted == count then
+      if actually_inserted == max_count then
         held_stack.clear()
-      elseif actually_inserted < count then
+
+      elseif actually_inserted < max_count then
         -- not all items could be moved, so stop it here.
-        held_stack.count = count - actually_inserted
-        return false
+        held_stack.count = max_count - actually_inserted
+        return SUCCESS_DONE_PARTIALLY
       end
     end
   else
     -- nothing could be moved
-    return false
+    return UNSUCCESS_SKIP
   end
 
-  return true
+  if done_something then
+    if remaining_actions and remaining_actions <= 0 then
+      return SUCCESS_DONE_PARTIALLY
+    end
+    return SUCCESS_DONE_ALL
+  end
+  return SUCCESS_DONE_NOTHING
 end
 
 local belt_types =
@@ -544,27 +622,48 @@ local belt_types =
   ["underground-belt"] = true,
 }
 
-local function move_items_on_belt_into_players_inventory(player, entity, flying_text_infos)
+local function move_items_on_belt_into_players_inventory(player, entity, max_actions, flying_text_infos)
   if not belt_types[entity.type] then
     -- entity not a belt
-    return true
+    return SUCCESS_DONE_NOTHING
   end
 
   local max_index = entity.get_max_transport_line_index()
 
   if not max_index then
     -- entity has no transport lines
-    return true
+    return SUCCESS_DONE_NOTHING
   end
+
+  if max_actions and max_actions <= 0 then
+    return UNSUCCESS_SKIP
+  end
+  local remaining_actions = max_actions
+  local done_something = false
 
   for index = 1, max_index do
     local transport_line = entity.get_transport_line(index)
     if transport_line then
       for name, count in pairs(transport_line.get_contents()) do
-        local stack = { name = name, count = count }
+        local max_count = count
+        if remaining_actions then
+          if remaining_actions <= 0 then
+            break
+          end
+
+          if remaining_actions < count then
+            max_count = remaining_actions
+            remaining_actions = 0
+          else
+            remaining_actions = remaining_actions - count
+          end
+        end
+
+        local stack = { name = name, count = max_count }
         if player.can_insert(stack) then
           local actually_inserted = player.insert(stack)
           if actually_inserted > 0 then
+            done_something = true
             stack.count = actually_inserted
             transport_line.remove_item(stack)
             flying_text_infos[name] =
@@ -574,74 +673,101 @@ local function move_items_on_belt_into_players_inventory(player, entity, flying_
             }
           end
 
-          if actually_inserted < count then
+          if actually_inserted < max_count then
             -- not all items could be moved, so stop it here.
-            return false
+            return SUCCESS_DONE_PARTIALLY
           end
 
         else
-          -- noting could be moved
-          return false
+          -- could not be inserted
+          if done_something then
+            -- something was moved before
+            return SUCCESS_DONE_PARTIALLY
+          end
+          return UNSUCCESS_SKIP
         end
 
       end
     end
   end
 
-  return true
+  if done_something then
+    if remaining_actions and remaining_actions <= 0 then
+      return SUCCESS_DONE_PARTIALLY
+    end
+    return SUCCESS_DONE_ALL
+  end
+  return SUCCESS_DONE_NOTHING
 end
 
 local function can_insert_into_players_inventory(player, entity)
-  local can_insert = false
   if entity.prototype and entity.prototype.mineable_properties and entity.prototype.mineable_properties.minable then
-    can_insert = true
     if entity.prototype.mineable_properties.products then
-      for i, p in pairs(entity.prototype.mineable_properties.products) do
-        if p.type == "item" and p.amount then
-          if not player.can_insert {name=p.name, count=math.floor(p.amount)} then
-            can_insert = false
-            break
+      for _, product in pairs(entity.prototype.mineable_properties.products) do
+        if product.type == "item" and product.amount then
+          if not player.can_insert { name = product.name, count = math.floor(product.amount) } then
+            -- false if any of the minable products couldn't be inserted
+            return false
           end
         end
       end
     end
+    return true
   end
-  return can_insert
+  return false
 end
 
 local function try_deconstruct_tile(entity, player, state)
   if not force_match(entity, player, true) then
-    return false
+    return UNSUCCESS_SKIP
   end
 
   if entity.to_be_deconstructed(player.force.name) then
     local position = entity.position
     local tile = entity.surface.get_tile(position.x, position.y)
     if can_insert_into_players_inventory(player, tile) then
-      return player.mine_tile(tile)
+      if player.mine_tile(tile) then
+        return SUCCESS_DONE_ALL
+      end
     end
   end
-  return false
+  return UNSUCCESS_SKIP
 end
 
 local function try_deconstruct_entity(entity, player, state)
   if not force_match(entity, player, true) then
-    return false
+    return UNSUCCESS_SKIP
   end
 
-  local success = false
   local flying_text_infos = {}
   local position = { x = entity.position.x, y = entity.position.y }
   local surface = entity.surface
-  if move_inventories_of_entity_into_players_inventory(player, entity, flying_text_infos) then
-    if move_items_in_inserters_hand_into_players_inventory(player, entity, flying_text_infos) then
-      if move_items_on_belt_into_players_inventory(player, entity, flying_text_infos) then
+
+  local max_actions = nil
+  if state.deconstruct_max_items > 0 then
+    max_actions = state.deconstruct_max_items
+  end
+
+  local success_state
+  success_state = move_inventories_of_entity_into_players_inventory(player, entity, max_actions, flying_text_infos)
+  if success_state == SUCCESS_DONE_ALL or success_state == SUCCESS_DONE_NOTHING then
+    success_state = move_items_in_inserters_hand_into_players_inventory(player, entity, max_actions, flying_text_infos)
+    if success_state == SUCCESS_DONE_ALL or success_state == SUCCESS_DONE_NOTHING then
+      success_state = move_items_on_belt_into_players_inventory(player, entity, max_actions, flying_text_infos)
+      if success_state == SUCCESS_DONE_ALL or success_state == SUCCESS_DONE_NOTHING then
         if can_insert_into_players_inventory(player, entity) then
-          success = player.mine_entity(entity, false)
+          if player.mine_entity(entity, false) then
+            success_state = SUCCESS_DONE_ALL
+          else
+            success_state = UNSUCCESS_SKIP
+          end
+        else
+          success_state = UNSUCCESS_SKIP
         end
       end
     end
   end
+
   -- HelpFunctions.log_it("flying_text_infos " .. serpent.block(flying_text_infos))
   FlyingText.create_flying_text_entities(surface, position, flying_text_infos)
   if flying_text_infos and next(flying_text_infos) then
@@ -649,7 +775,7 @@ local function try_deconstruct_entity(entity, player, state)
     player.play_sound({ path = "utility/inventory_move" })
   end
 
-  return success
+  return success_state
 end
 
 local build_actions =
@@ -661,7 +787,7 @@ local build_actions =
   [ActionTypes.UPGRADE] = try_upgrade,
 }
 
-local function get_assigned_to_other_robot(entity, action_type, force_name)
+local function is_assigned_to_other_robot(entity, action_type, force_name)
 
   if action_type == ActionTypes.DECONSTRUCT or action_type == ActionTypes.DECONSTRUCT_TILE then
     -- is_registered_for_deconstruction(force) -> boolean 
@@ -690,24 +816,26 @@ local function get_assigned_to_other_robot(entity, action_type, force_name)
 end
 
 local function try_candidate(entry, player, state)
-  if not entry then return false end
+  if not entry then
+    return UNSUCCESS_SKIP
+  end
 
   local action_type = entry.action_type
   if not action_type or action_type <= ActionTypes.NONE then
-    return false
+    return UNSUCCESS_SKIP
   end
 
   local entity = entry.entity
   if not entity or not entity.valid then
-    return false
+    return UNSUCCESS_SKIP
   end
 
-  -- don't check, if setting "ignore_other_robots" is enabled to save on performance
+  -- don't check robot assignment, if setting "ignore_other_robots" is enabled, to save on performance
   if not state.ignore_other_robots then
     local force_name = player.force.name
 
-    if get_assigned_to_other_robot(entity, action_type, force_name) then
-      return false
+    if is_assigned_to_other_robot(entity, action_type, force_name) then
+      return UNSUCCESS_SKIP
     end
   end
 
@@ -716,7 +844,7 @@ local function try_candidate(entry, player, state)
     return build_action(entity, player, state)
   end
 
-  return false
+  return UNSUCCESS_SKIP
 end
 
 local function get_candidates(state)
@@ -749,18 +877,25 @@ local function do_autobuild(state, player)
   if not candidates then return end
 
   local candidate = nil
+  if state.candidate_iter then
+    candidate = candidates[state.candidate_iter]
+  else
+    state.candidate_iter, candidate = next(candidates)
+  end
+  local success_state
   local remainingActions = state.actions_per_cycle
   repeat
-    state.candidate_iter, candidate = next(candidates, state.candidate_iter)
     if candidate then
-      if try_candidate(candidate, player, state) then
+      success_state = try_candidate(candidate, player, state)
+
+      if success_state == SUCCESS_DONE_ALL or success_state == SUCCESS_DONE_PARTIALLY then
         remainingActions = remainingActions - 1
         state.last_successful_build_tick = game.tick
-        -- if HelpFunctions.check_severity(5) then
-        --   HelpFunctions.log_it(string.format("cycle: %d: %s on position: %d/%d",
-        --       state.current_cycle, ActionTypes.get_action_verb(candidate.action_type),
-        --       candidate.position.x, candidate.position.y))
-        -- end
+      end
+
+      if success_state ~= SUCCESS_DONE_PARTIALLY then
+        -- advance to next in list, unless the candidate was handled only partially
+        state.candidate_iter, candidate = next(candidates, state.candidate_iter)
       end
     end
   until (not candidate) or (remainingActions == 0)
@@ -906,7 +1041,12 @@ local function on_runtime_mod_setting_changed(event)
     local state = get_player_state(event.player_index)
     state.build_while_in_combat = settings.get_player_settings(event.player_index)[event.setting].value
 
+  elseif event.setting == "autobuild-deconstruct-max-items" then
+    local state = get_player_state(event.player_index)
+    state.deconstruct_max_items = settings.get_player_settings(event.player_index)[event.setting].value
+
   end
+
 end
 
 script.on_event(defines.events.on_runtime_mod_setting_changed, on_runtime_mod_setting_changed)
