@@ -462,6 +462,35 @@ local function try_upgrade(entity, player, state)
   end
 end
 
+
+local function limit_count_and_update_remaining_actions(count, remaining_actions)
+  local max_count = count
+  if remaining_actions then
+    if remaining_actions <= 0 then
+      return nil, 0
+    end
+
+    if remaining_actions < count then
+      max_count = remaining_actions
+      remaining_actions = 0
+    else
+      remaining_actions = remaining_actions - count
+    end
+  end
+
+  return max_count, remaining_actions
+end
+
+local function get_result(done_something, remaining_actions)
+  if done_something then
+    if remaining_actions and remaining_actions <= 0 then
+      return SUCCESS_DONE_PARTIALLY
+    end
+    return SUCCESS_DONE_ALL
+  end
+  return SUCCESS_DONE_NOTHING
+end
+
 local function move_inventories_of_entity_into_players_inventory(player, entity, max_actions, flying_text_infos)
 
   if not entity.has_items_inside() then
@@ -486,21 +515,12 @@ local function move_inventories_of_entity_into_players_inventory(player, entity,
     if inventory then
       for name, count in pairs(inventory.get_contents()) do
         if count >= 1 then
-          local max_count = count
-          if remaining_actions then
-            if remaining_actions <= 0 then
-              break
-            end
-
-            if remaining_actions < count then
-              max_count = remaining_actions
-              remaining_actions = 0
-            else
-              remaining_actions = remaining_actions - count
-            end
+          count, remaining_actions = limit_count_and_update_remaining_actions(count, remaining_actions)
+          if not count then
+            return SUCCESS_DONE_PARTIALLY
           end
 
-          local stack = { name = name, count = max_count }
+          local stack = { name = name, count = count }
           if player.can_insert(stack) then
             local actually_inserted = player.insert(stack)
             if actually_inserted > 0 then
@@ -515,13 +535,13 @@ local function move_inventories_of_entity_into_players_inventory(player, entity,
               }
             end
 
-            if actually_inserted < max_count then
+            if actually_inserted < count then
               -- not all items could be moved, so stop it here.
               return SUCCESS_DONE_PARTIALLY
             end
 
           else
-            -- could not be inserted
+            -- nothing could be inserted
             if done_something then
               -- something was moved before
               return SUCCESS_DONE_PARTIALLY
@@ -533,13 +553,7 @@ local function move_inventories_of_entity_into_players_inventory(player, entity,
     end
   end
 
-  if done_something then
-    if remaining_actions and remaining_actions <= 0 then
-      return SUCCESS_DONE_PARTIALLY
-    end
-    return SUCCESS_DONE_ALL
-  end
-  return SUCCESS_DONE_NOTHING
+  return get_result(done_something, remaining_actions)
 end
 
 local inserter_types =
@@ -573,17 +587,12 @@ local function move_items_in_inserters_hand_into_players_inventory(player, entit
   local count = held_stack.count
 
   if count >= 1 then
-    local max_count = count
-    if remaining_actions then
-      if remaining_actions < count then
-        max_count = remaining_actions
-        remaining_actions = 0
-      else
-        remaining_actions = remaining_actions - count
-      end
+    count, remaining_actions = limit_count_and_update_remaining_actions(count, remaining_actions)
+    if not count then
+      return UNSUCCESS_SKIP
     end
 
-    local stack = { name = name, count = max_count }
+    local stack = { name = name, count = count }
     if player.can_insert(stack) then
       local actually_inserted = player.insert(stack)
       if actually_inserted > 0 then
@@ -594,28 +603,22 @@ local function move_items_in_inserters_hand_into_players_inventory(player, entit
           total = player.get_item_count(name) or 0
         }
 
-        if actually_inserted == max_count then
+        if actually_inserted == count then
           held_stack.clear()
 
-        elseif actually_inserted < max_count then
+        elseif actually_inserted < count then
           -- not all items could be moved, so stop it here.
-          held_stack.count = max_count - actually_inserted
+          held_stack.count = count - actually_inserted
           return SUCCESS_DONE_PARTIALLY
         end
       end
     else
-      -- nothing could be moved
+      -- nothing could be inserted
       return UNSUCCESS_SKIP
     end
   end
 
-  if done_something then
-    if remaining_actions and remaining_actions <= 0 then
-      return SUCCESS_DONE_PARTIALLY
-    end
-    return SUCCESS_DONE_ALL
-  end
-  return SUCCESS_DONE_NOTHING
+  return get_result(done_something, remaining_actions)
 end
 
 local belt_types =
@@ -649,21 +652,12 @@ local function move_items_on_belt_into_players_inventory(player, entity, max_act
     if transport_line then
       for name, count in pairs(transport_line.get_contents()) do
         if count >= 1 then
-          local max_count = count
-          if remaining_actions then
-            if remaining_actions <= 0 then
-              break
-            end
-
-            if remaining_actions < count then
-              max_count = remaining_actions
-              remaining_actions = 0
-            else
-              remaining_actions = remaining_actions - count
-            end
+          count, remaining_actions = limit_count_and_update_remaining_actions(count, remaining_actions)
+          if not count then
+            return SUCCESS_DONE_PARTIALLY
           end
 
-          local stack = { name = name, count = max_count }
+          local stack = { name = name, count = count }
           if player.can_insert(stack) then
             local actually_inserted = player.insert(stack)
             if actually_inserted > 0 then
@@ -677,13 +671,13 @@ local function move_items_on_belt_into_players_inventory(player, entity, max_act
               }
             end
 
-            if actually_inserted < max_count then
+            if actually_inserted < count then
               -- not all items could be moved, so stop it here.
               return SUCCESS_DONE_PARTIALLY
             end
 
           else
-            -- could not be inserted
+            -- nothing could be inserted
             if done_something then
               -- something was moved before
               return SUCCESS_DONE_PARTIALLY
@@ -695,13 +689,7 @@ local function move_items_on_belt_into_players_inventory(player, entity, max_act
     end
   end
 
-  if done_something then
-    if remaining_actions and remaining_actions <= 0 then
-      return SUCCESS_DONE_PARTIALLY
-    end
-    return SUCCESS_DONE_ALL
-  end
-  return SUCCESS_DONE_NOTHING
+  return get_result(done_something, remaining_actions)
 end
 
 local function can_insert_into_players_inventory(player, entity)
