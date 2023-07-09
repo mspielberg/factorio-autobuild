@@ -1,4 +1,17 @@
 ---------------------------------------------------------------------------------------------------
+Version: 0.5.7
+Date: 2023-06-28
+  Changes:
+    - Support upgrading direction of entites
+    - Pick up inventories of entities/items on belts/items in hand of insertes first before picking up the entity. Always check, if it fits.
+    - Add a setting for the deconstruction speed, to simulate vanilla bots deconstruction. First empty inventories before picking up
+    - Improve Performance issues detected by profiling
+  Bugfixes:
+    - Check, if entity can be placed before reviving.
+    - Fix crash, when the rendering object of visual area is somehow not valid before accessing. F.e. happens, when switching to editor mode and back
+    - Fix code issues detected by FMTK
+    - Prevent crash, when stack item count of stack for the can_insert check isn't positive somehow.
+---------------------------------------------------------------------------------------------------
 Version: 0.5.6
 Date: 2023-05-30
   Changes:

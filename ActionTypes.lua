@@ -16,8 +16,9 @@ function ActionTypes.get_action_type(entity)
   end
 
   local entity_name = entity.name
-
-  if entity_name == "entity-ghost" then
+  if entity_name == "tile-ghost" then
+    return ActionTypes.TILE_GHOST
+  elseif entity_name == "entity-ghost" then
     return ActionTypes.ENTITY_GHOST
   elseif entity.to_be_deconstructed() then
     if entity_name == "deconstructible-tile-proxy" then
@@ -27,8 +28,6 @@ function ActionTypes.get_action_type(entity)
     end
   elseif entity.to_be_upgraded() then
     return ActionTypes.UPGRADE
-  elseif entity_name == "tile-ghost" then
-    return ActionTypes.TILE_GHOST
   end
   return ActionTypes.NONE
 end
