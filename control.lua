@@ -322,16 +322,6 @@ local function try_revive_with_stack(ghost, player, stack_to_place)
     return UNSUCCESS_SKIP
   end
 
-  if ghost.name == "entity-ghost" and not player.surface.can_place_entity {
-      name = ghost.ghost_name,
-      position = ghost.position,
-      direction = ghost.direction,
-      force = ghost.force
-    }
-  then
-    return UNSUCCESS_SKIP
-  end
-
   local items, entity, request_proxy = ghost.revive{
     return_item_request_proxy = true,
     raise_revive = true,
