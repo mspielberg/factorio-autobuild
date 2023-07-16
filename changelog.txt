@@ -6,7 +6,8 @@ Date: 2023-07-16
   Bugfixes:
     - Fix bug in motion detection, which was introduced in 0.5.7. Moving did not instantly recognize ghosts in building area
     - Fix bug, that deconstructing entities with complex items f.e. like armor with grid in it, would move it without interior 
-    - Fix bug that upgrading direction of ug belts actually works
+    - Fix bug, that upgrading direction of ug belts actually works
+    - Fix bug, that entities couldn't be revived, when items are on the ground
 ---------------------------------------------------------------------------------------------------
 Version: 0.5.7
 Date: 2023-06-28
