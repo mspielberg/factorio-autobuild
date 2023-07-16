@@ -407,13 +407,7 @@ local function try_revive_tile(entity, player, state)
   return UNSUCCESS_SKIP
 end
 
-local function try_upgrade_single_entity(entity, player)
-  local target_proto = entity.get_upgrade_target()
-  if not target_proto then
-    return UNSUCCESS_SKIP
-  end
-
-  local target_name = target_proto.name
+local function try_upgrade_single_entity(entity, target_name, player)
 
   if entity.name == target_name then
     -- same entity name: f.e. upgrade belt to belt
@@ -436,13 +430,30 @@ local function try_upgrade_single_entity(entity, player)
   return UNSUCCESS_SKIP
 end
 
-local function try_upgrade_paired_entity(entity, other_entity, player)
-  if try_upgrade_single_entity(entity, player) == UNSUCCESS_SKIP then
-    return UNSUCCESS_SKIP
-  end
+---comment
+---@param entity LuaEntity
+---@param other_entity LuaEntity
+---@param target_name any
+---@param player any
+---@param is_ug_belt any
+---@return integer
+local function try_upgrade_paired_entity(entity, other_entity, target_name, player, is_ug_belt)
 
-  if try_upgrade_single_entity(other_entity, player) == UNSUCCESS_SKIP then
-    return UNSUCCESS_SKIP
+  if is_ug_belt and entity.name == target_name then
+    local direction = entity.get_upgrade_direction()
+    if entity.direction ~= direction then
+      entity.cancel_upgrade(player.force, player)
+      other_entity.cancel_upgrade(player.force, player)
+      entity.rotate { force = player.force }
+    end
+  else
+    if try_upgrade_single_entity(entity, target_name, player) == UNSUCCESS_SKIP then
+      return UNSUCCESS_SKIP
+    end
+
+    if try_upgrade_single_entity(other_entity, target_name, player) == UNSUCCESS_SKIP then
+      return UNSUCCESS_SKIP
+    end
   end
 
   return SUCCESS_DONE_ALL
@@ -453,12 +464,19 @@ local function try_upgrade(entity, player, state)
     return UNSUCCESS_SKIP
   end
 
+  local target_prototype = entity.get_upgrade_target()
+  if not target_prototype then
+    return UNSUCCESS_SKIP
+  end
+
+  local target_name = target_prototype.name
+
   if entity.type == "underground-belt" and entity.neighbours then
-    return try_upgrade_paired_entity(entity, entity.neighbours, player)
+   return try_upgrade_paired_entity(entity, entity.neighbours, target_name, player, true)
   elseif entity.type == "pipe-to-ground" and entity.neighbours[1] and entity.neighbours[1][1] then
-    return try_upgrade_paired_entity(entity, entity.neighbours[1][1], player)
+    return try_upgrade_paired_entity(entity, entity.neighbours[1][1], target_name, player, false)
   else
-    return try_upgrade_single_entity(entity, player)
+    return try_upgrade_single_entity(entity, target_name, player)
   end
 end
 
@@ -467,7 +485,7 @@ local function limit_count_and_update_remaining_actions(count, remaining_actions
   local max_count = count
   if remaining_actions then
     if remaining_actions <= 0 then
-      return nil, 0
+      return 0, 0
     end
 
     if remaining_actions < count then
@@ -491,6 +509,24 @@ local function get_result(done_something, remaining_actions)
   return SUCCESS_DONE_NOTHING
 end
 
+local function is_special_stack(stack)
+  if not stack then return false end
+  if stack.is_blueprint or stack.is_blueprint_book or stack.is_module or stack.is_tool or stack.is_mining_tool
+              or stack.is_armor or stack.is_repair_tool or stack.is_item_with_label or stack.is_item_with_inventory
+              or stack.is_item_with_entity_data or stack.is_selection_tool or stack.is_item_with_tags
+              or stack.is_deconstruction_item or stack.is_upgrade_item
+  then
+    return true
+  end
+  return false
+end
+
+---comment
+---@param player LuaPlayer
+---@param entity LuaEntity
+---@param max_actions any
+---@param flying_text_infos any
+---@return integer
 local function move_inventories_of_entity_into_players_inventory(player, entity, max_actions, flying_text_infos)
 
   if not entity.has_items_inside() then
@@ -516,37 +552,43 @@ local function move_inventories_of_entity_into_players_inventory(player, entity,
       for name, count in pairs(inventory.get_contents()) do
         if count >= 1 then
           count, remaining_actions = limit_count_and_update_remaining_actions(count, remaining_actions)
-          if not count then
+          if count == 0 then
             return SUCCESS_DONE_PARTIALLY
           end
-
-          local stack = { name = name, count = count }
-          if player.can_insert(stack) then
-            local actually_inserted = player.insert(stack)
-            if actually_inserted > 0 then
-              done_something = true
-              stack.count = actually_inserted
-              inventory.remove(stack)
-              -- HelpFunctions.log_it("moved " .. actually_inserted .." of " .. name)
-              flying_text_infos[name] =
-              {
-                amount = (flying_text_infos[name] and flying_text_infos[name].amount or 0) + actually_inserted,
-                total = player.get_item_count(name) or 0
-              }
+          local stack, _ = inventory.find_item_stack(name)
+          if stack and stack.valid then
+            if not is_special_stack(stack) then
+              stack = { name = name, count = count }
             end
 
-            if actually_inserted < count then
-              -- not all items could be moved, so stop it here.
-              return SUCCESS_DONE_PARTIALLY
+            if player.can_insert(stack) then
+              local actually_inserted = player.insert(stack)
+              if actually_inserted > 0 then
+                done_something = true
+                stack.count = actually_inserted
+                inventory.remove(stack)
+                -- HelpFunctions.log_it("moved " .. actually_inserted .." of " .. name)
+                flying_text_infos[name] =
+                {
+                  amount = (flying_text_infos[name] and flying_text_infos[name].amount or 0) + actually_inserted,
+                  total = player.get_item_count(name) or 0
+                }
+              end
+
+              if actually_inserted < count then
+                -- not all items could be moved, so stop it here.
+                return SUCCESS_DONE_PARTIALLY
+              end
+
+            else
+              -- nothing could be inserted
+              if done_something then
+                -- something was moved before
+                return SUCCESS_DONE_PARTIALLY
+              end
+              return UNSUCCESS_SKIP
             end
 
-          else
-            -- nothing could be inserted
-            if done_something then
-              -- something was moved before
-              return SUCCESS_DONE_PARTIALLY
-            end
-            return UNSUCCESS_SKIP
           end
         end
       end
@@ -588,33 +630,39 @@ local function move_items_in_inserters_hand_into_players_inventory(player, entit
 
   if count >= 1 then
     count, remaining_actions = limit_count_and_update_remaining_actions(count, remaining_actions)
-    if not count then
+    if count == 0 then
       return UNSUCCESS_SKIP
     end
 
-    local stack = { name = name, count = count }
-    if player.can_insert(stack) then
-      local actually_inserted = player.insert(stack)
-      if actually_inserted > 0 then
-        done_something = true
-        flying_text_infos[name] =
-        {
-          amount = (flying_text_infos[name] and flying_text_infos[name].amount or 0) + actually_inserted,
-          total = player.get_item_count(name) or 0
-        }
-
-        if actually_inserted == count then
-          held_stack.clear()
-
-        elseif actually_inserted < count then
-          -- not all items could be moved, so stop it here.
-          held_stack.count = count - actually_inserted
-          return SUCCESS_DONE_PARTIALLY
-        end
+    local stack = held_stack
+    if stack and stack.valid then
+      if not is_special_stack(stack) then
+        stack = { name = name, count = count }
       end
-    else
-      -- nothing could be inserted
-      return UNSUCCESS_SKIP
+
+      if player.can_insert(stack) then
+        local actually_inserted = player.insert(stack)
+        if actually_inserted > 0 then
+          done_something = true
+          flying_text_infos[name] =
+          {
+            amount = (flying_text_infos[name] and flying_text_infos[name].amount or 0) + actually_inserted,
+            total = player.get_item_count(name) or 0
+          }
+
+          if actually_inserted == count then
+            held_stack.clear()
+
+          elseif actually_inserted < count then
+            -- not all items could be moved, so stop it here.
+            held_stack.count = count - actually_inserted
+            return SUCCESS_DONE_PARTIALLY
+          end
+        end
+      else
+        -- nothing could be inserted
+        return UNSUCCESS_SKIP
+      end
     end
   end
 
@@ -628,6 +676,12 @@ local belt_types =
   ["underground-belt"] = true,
 }
 
+---comment
+---@param player LuaPlayer
+---@param entity LuaEntity
+---@param max_actions any
+---@param flying_text_infos any
+---@return integer
 local function move_items_on_belt_into_players_inventory(player, entity, max_actions, flying_text_infos)
   if not belt_types[entity.type] then
     -- entity not a belt
@@ -648,41 +702,50 @@ local function move_items_on_belt_into_players_inventory(player, entity, max_act
   local done_something = false
 
   for index = 1, max_index do
+---@diagnostic disable-next-line: param-type-mismatch
     local transport_line = entity.get_transport_line(index)
     if transport_line then
-      for name, count in pairs(transport_line.get_contents()) do
-        if count >= 1 then
-          count, remaining_actions = limit_count_and_update_remaining_actions(count, remaining_actions)
-          if not count then
-            return SUCCESS_DONE_PARTIALLY
-          end
-
-          local stack = { name = name, count = count }
-          if player.can_insert(stack) then
-            local actually_inserted = player.insert(stack)
-            if actually_inserted > 0 then
-              done_something = true
-              stack.count = actually_inserted
-              transport_line.remove_item(stack)
-              flying_text_infos[name] =
-              {
-                amount = (flying_text_infos[name] and flying_text_infos[name].amount or 0) + actually_inserted,
-                total = player.get_item_count(name) or 0
-              }
-            end
-
-            if actually_inserted < count then
-              -- not all items could be moved, so stop it here.
+      for k = #transport_line, 1, -1 do
+        local stack = transport_line[k]
+        if stack and stack.valid then
+          local count = stack.count
+          local name = stack.name
+          if count >= 1 then
+            count, remaining_actions = limit_count_and_update_remaining_actions(count, remaining_actions)
+            if count == 0 then
               return SUCCESS_DONE_PARTIALLY
             end
 
-          else
-            -- nothing could be inserted
-            if done_something then
-              -- something was moved before
-              return SUCCESS_DONE_PARTIALLY
+            if not is_special_stack(stack) then
+              stack = { name = name, count = count }
             end
-            return UNSUCCESS_SKIP
+
+            if player.can_insert(stack) then
+              local actually_inserted = player.insert(stack)
+              if actually_inserted > 0 then
+                done_something = true
+                stack.count = actually_inserted
+                transport_line.remove_item(stack)
+                flying_text_infos[name] =
+                {
+                  amount = (flying_text_infos[name] and flying_text_infos[name].amount or 0) + actually_inserted,
+                  total = player.get_item_count(name) or 0
+                }
+              end
+
+              if actually_inserted < count then
+                -- not all items could be moved, so stop it here.
+                return SUCCESS_DONE_PARTIALLY
+              end
+
+            else
+              -- nothing could be inserted
+              if done_something then
+                -- something was moved before
+                return SUCCESS_DONE_PARTIALLY
+              end
+              return UNSUCCESS_SKIP
+            end
           end
         end
       end
