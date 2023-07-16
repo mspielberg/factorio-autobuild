@@ -1,4 +1,11 @@
 ---------------------------------------------------------------------------------------------------
+Version: 0.5.8
+Date: 2023-07-16
+  Changes:
+    - Use find_entities_filtered to improve performance
+  Bugfixes:
+    - Fix bug in motion detection, which was introduced in 0.5.7. Moving did not instantly recognize ghosts in building area
+---------------------------------------------------------------------------------------------------
 Version: 0.5.7
 Date: 2023-06-28
   Changes:

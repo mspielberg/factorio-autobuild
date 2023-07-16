@@ -897,6 +897,7 @@ local function do_autobuild(state, player)
 
   if not candidate then
     -- no building candidates on current position -> stop building phase
+    if HelpFunctions.check_severity(3) then HelpFunctions.log_it(string.format("cycle: %d: no candidate: switch off building_phase", state.current_cycle)) end
     state.is_building_phase = false
   end
 end
@@ -914,20 +915,20 @@ local function needs_recheck(state)
   state.motionless_cycles = (state.motionless_cycles or 0) + 1
 
   if force_recheck then
-    --if HelpFunctions.check_severity(3) then HelpFunctions.log_it(string.format("cycle: %d: force recheck", state.current_cycle)) end
+    if HelpFunctions.check_severity(3) then HelpFunctions.log_it(string.format("cycle: %d: force recheck", state.current_cycle)) end
     return true -- force recheck
   end
 
   -- always recheck once every 12 (idle_cycles_before_recheck) cycles, regardless of other conditions
-  local is_recheck_cycle = (state.current_cycle % state.idle_cycles_before_recheck) == 0
+  local is_recheck_cycle = ((state.current_cycle -1) % state.idle_cycles_before_recheck) == 0
   if is_recheck_cycle then
-    --if HelpFunctions.check_severity(4) then HelpFunctions.log_it(string.format("cycle: %d: recheck regular cycle", state.current_cycle)) end
+    if HelpFunctions.check_severity(4) then HelpFunctions.log_it(string.format("cycle: %d: recheck regular cycle", state.current_cycle)) end
     return true -- recheck cycle
   end
 
   -- if player is standing still, no recheck
-  if state.motionless_cycles >= 1 then
-    --if HelpFunctions.check_severity(4) then HelpFunctions.log_it(string.format("cycle: %d: no recheck: not moved recently", state.current_cycle)) end
+  if state.motionless_cycles >= 2 then
+    if HelpFunctions.check_severity(4) then HelpFunctions.log_it(string.format("cycle: %d: no recheck: not moved recently", state.current_cycle)) end
     return false --no recheck
   end
 
@@ -938,12 +939,12 @@ local function needs_recheck(state)
     local ticks_since_last_successful_build = game.tick - state.last_successful_build_tick
 
     if ticks_since_last_successful_build >= 300 then -- 5 sec.
-      --if HelpFunctions.check_severity(3) then HelpFunctions.log_it(string.format("cycle: %d: no recheck: not built recently", state.current_cycle)) end
+      if HelpFunctions.check_severity(3) then HelpFunctions.log_it(string.format("cycle: %d: no recheck: not built recently", state.current_cycle)) end
       return false--no recheck
     end
   end
 
-  --if HelpFunctions.check_severity(3) then HelpFunctions.log_it(string.format("cycle: %d: recheck normal", state.current_cycle)) end
+  if HelpFunctions.check_severity(3) then HelpFunctions.log_it(string.format("cycle: %d: recheck normal", state.current_cycle)) end
   return true
 end
 

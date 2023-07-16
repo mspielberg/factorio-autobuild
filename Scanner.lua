@@ -48,7 +48,12 @@ local function generator(dims)
   local cx           = dims[2]
   local cy           = dims[3]
 
-  local area_entities = {
+  local surface = game.surfaces[surface_name]
+  if not surface then
+    return {}
+  end
+
+  local area = {
     left_top = {
       x = cx * Constants.AREA_SIZE + 0.1,
       y = cy * Constants.AREA_SIZE + 0.1,
@@ -59,27 +64,37 @@ local function generator(dims)
     },
   }
 
-  local entities = game.surfaces[surface_name].find_entities(area_entities)
+  --local entities = game.surfaces[surface_name].find_entities(area)
 
-  -- if HelpFunctions.check_severity(4) then
-  --   local tile_ghosts_short = ""
-  --   for _, entity in pairs(entities) do
-  --     local action_type = ActionTypes.get_action_type(entity)
-  --     if action_type == ActionTypes.TILE_GHOST then
-  --       tile_ghosts_short = tile_ghosts_short .." ".. entity.ghost_name.."("..entity.position.x.."/"..entity.position.y..")"
-  --     end
-  --   end
+  local ghost_entities = game.surfaces[surface_name].find_entities_filtered
+  {
+    area = area,
+    name = {"tile-ghost", "entity-ghost"}
+  }
 
-  --   if tile_ghosts_short ~= "" then
-  --     HelpFunctions.log_it("found tile ghosts: "..tile_ghosts_short)
-  --   end
-  -- end
+  local decon_entities = game.surfaces[surface_name].find_entities_filtered
+  {
+    area = area,
+    to_be_deconstructed = true,
+  }
+
+  local upgrade_entities = game.surfaces[surface_name].find_entities_filtered
+  {
+    area = area,
+    to_be_upgraded = true,
+  }
+
+  local entities = {}
+  local n = 0
+  for _,v in ipairs(ghost_entities)   do n=n+1; entities[n]=v end
+  for _,v in ipairs(decon_entities)   do n=n+1; entities[n]=v end
+  for _,v in ipairs(upgrade_entities) do n=n+1; entities[n]=v end
 
   local filtered_entities = filter_and_annotate_entities(game.surfaces[surface_name], entities)
 
-  -- if HelpFunctions.check_severity(3) then
-  --   HelpFunctions.log_it("generator found ("..#filtered_entities.."/"..#entities..") entities in chunk: "..serpent.line(dims))
-  -- end
+  if HelpFunctions.check_severity(3) then
+    HelpFunctions.log_it("generator found ("..#filtered_entities.."/"..#entities..") entities in chunk: "..serpent.line(dims))
+  end
 
   return filtered_entities
 end
@@ -180,6 +195,10 @@ local function find_candidates(cache, surface, position, distance, max)
   local entries = {}
   local spiral_iter = chunk_spiral(position, distance)
   local i = 1
+
+  if HelpFunctions.check_severity(3) then
+    HelpFunctions.log_it("find_candidates at "..serpent.line(position))
+  end
 
   for cx, cy in spiral_iter do
     local unfiltered = cache:get{surface, cx, cy}
