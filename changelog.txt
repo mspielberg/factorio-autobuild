@@ -1,4 +1,10 @@
 ---------------------------------------------------------------------------------------------------
+Version: 0.5.9
+Date: 2023-12-27
+  Bugfixes:
+    - Fix bug, when upgrading underground pipes.
+    - Try to fix bug, when upgrading only the direction of entities. Not repro for me, but I added some additional nil checks
+---------------------------------------------------------------------------------------------------
 Version: 0.5.8
 Date: 2023-07-16
   Changes:
