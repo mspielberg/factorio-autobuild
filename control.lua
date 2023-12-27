@@ -403,7 +403,7 @@ local function try_upgrade_single_entity(entity, target_name, player)
     -- same entity name: f.e. upgrade belt to belt
     local direction = entity.get_upgrade_direction()
     -- simply change direction
-    if entity.direction ~= direction then
+    if direction and entity.direction and entity.direction ~= direction then
       entity.direction = direction
       entity.cancel_upgrade(player.force, player)
       return SUCCESS_DONE_ALL
@@ -462,9 +462,7 @@ local function try_upgrade(entity, player, state)
   local target_name = target_prototype.name
 
   if entity.type == "underground-belt" and entity.neighbours then
-   return try_upgrade_paired_entity(entity, entity.neighbours, target_name, player, true)
-  elseif entity.type == "pipe-to-ground" and entity.neighbours[1] and entity.neighbours[1][1] then
-    return try_upgrade_paired_entity(entity, entity.neighbours[1][1], target_name, player, false)
+    return try_upgrade_paired_entity(entity, entity.neighbours, target_name, player, true)
   else
     return try_upgrade_single_entity(entity, target_name, player)
   end
