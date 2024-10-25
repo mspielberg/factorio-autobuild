@@ -6,37 +6,11 @@ data:extend{
     action = "lua",
     toggleable = true,
     localised_name = {"autobuild-shortcut.autobuild-shortcut-toggle-construction"},
-    icon =
-    {
-      filename = "__autobuild__/graphics/wrench-x32.png",
-      priority = "extra-high-no-scale",
-      size = 32,
-      scale = 1,
-      flags = {"icon"}
-    },
-    small_icon =
-    {
-      filename = "__autobuild__/graphics/wrench-x24.png",
-      priority = "extra-high-no-scale",
-      size = 24,
-      scale = 1,
-      flags = {"icon"}
-    },
-    disabled_icon =
-    {
-      filename = "__autobuild__/graphics/wrench-x32-white.png",
-      priority = "extra-high-no-scale",
-      size = 32,
-      scale = 1,
-      flags = {"icon"}
-    },
-    disabled_small_icon =
-    {
-      filename = "__autobuild__/graphics/wrench-x24-white.png",
-      priority = "extra-high-no-scale",
-      size = 24,
-      scale = 1,
-      flags = {"icon"}
-    },
+    icon = "__autobuild__/graphics/wrench-x32.png",
+    icon_size = 32,
+    small_icon = "__autobuild__/graphics/wrench-x24.png",
+    small_icon_size = 24,
+    disabled_icon = "__autobuild__/graphics/wrench-x32-white.png",
+    disabled_small_icon = "__autobuild__/graphics/wrench-x24-white.png",
   },
 }
