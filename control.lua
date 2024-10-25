@@ -36,17 +36,17 @@ end
 
 local function change_visual_area(player, state, opacity)
 
-  if state.visual_area_id then
-    if rendering.is_valid(state.visual_area_id) then
-      rendering.destroy(state.visual_area_id)
-    end
-    state.visual_area_id = nil
+  if state.visual_area then
+    state.visual_area.destroy()
+    state.visual_area = nil
   end
 
-  -- player.print("enable_visual_area ".. (state.enable_visual_area and "true" or "false"))
-  -- player.print("opacity ".. (opacity or "nil"))
-  -- player.print("player.character "..serpent.block(player.character))
-  -- player.print("build_distance "..(state.build_distance or "nil"))
+  -- if(player) then
+  --   player.print("enable_visual_area ".. (state.enable_visual_area and "true" or "false"))
+  --   player.print("opacity ".. (opacity or "nil"))
+  --   player.print("player.character "..serpent.block(player.character))
+  --   player.print("build_distance "..(state.build_distance or "nil"))
+  -- end
 
   if not state.enable_visual_area then return end
   if not opacity or opacity <= 0 then return end
@@ -55,17 +55,16 @@ local function change_visual_area(player, state, opacity)
 
   local radius = state.build_distance + 0.5
 
-  state.visual_area_id = rendering.draw_rectangle({
+  state.visual_area = rendering.draw_rectangle({
     surface = player.surface,
     filled = true,
     draw_on_ground = true,
     color = { r=(opacity/200), g=(opacity/200), b=0, a=(opacity/200) },
-    left_top = player.character,
-    left_top_offset = { -1*radius, -1*radius },
-    right_bottom = player.character,
-    right_bottom_offset = { radius, radius },
+    left_top = { entity=player.character, offset={ -1*radius, -1*radius } },
+    right_bottom = { entity=player.character, offset={ radius, radius } },
     players = { player },
   })
+
 end
 
 -- on_character_swapped_event
@@ -81,18 +80,18 @@ local function on_character_swapped_event(event)
   if not player.index then return end
 
   local state = get_player_state(player.index)
-  if not state.visual_area_id then return end
+  if not state.visual_area then return end
   if not state.build_distance then return end
 
   local radius = state.build_distance + 0.5
-  if not rendering.is_valid(state.visual_area_id) then
-    state.visual_area_id = nil
+  if state.visual_area and not state.visual_area.valid() then
+    state.visual_area = nil
     return
   end
 
-  local target = rendering.get_left_top(state.visual_area_id)
+  local target = rendering.get_left_top(state.visual_area)
   if target and target.entity and target.entity.unit_number == event.old_unit_number then
-    rendering.set_corners(state.visual_area_id,
+    rendering.set_corners(state.visual_area,
         event.new_character, { -1*radius, -1*radius },
         event.new_character, { radius, radius })
   end
@@ -101,12 +100,12 @@ end
 remote.add_interface("autobuild", { on_character_swapped = on_character_swapped_event } )
 
 local function on_load()
-  player_state = global.player_state
+  player_state = storage.player_state
 end
 script.on_load(on_load)
 
 local function on_init()
-  global.player_state = {}
+  storage.player_state = {}
   on_load()
 end
 script.on_init(on_init)
@@ -121,7 +120,7 @@ local function on_configuration_changed()
       player.set_shortcut_toggled(construction_toggle_name, false)
     end
   end
-  global.player_state = {}
+  storage.player_state = {}
   cache = NDCache.new(Scanner.generator)
   on_load()
 end
@@ -269,10 +268,10 @@ local to_place_cache = {}
 local function to_place(entity_name)
   local stacks = to_place_cache[entity_name]
   if not stacks then
-    local prototype = game.entity_prototypes[entity_name] or game.tile_prototypes[entity_name]
+    local prototype = prototypes.entity[entity_name] or prototypes.tile[entity_name]
     stacks = prototype and prototype.items_to_place_this or {}
     for _, stack in pairs(stacks) do
-      stack.prototype = game.item_prototypes[stack.name]
+      stack.prototype = prototypes.item[stack.name]
     end
     to_place_cache[entity_name] = stacks or {}
   end
@@ -836,25 +835,25 @@ local build_actions =
 local function is_assigned_to_other_robot(entity, action_type, force_name)
 
   if action_type == ActionTypes.DECONSTRUCT or action_type == ActionTypes.DECONSTRUCT_TILE then
-    -- is_registered_for_deconstruction(force) -> boolean 
-    -- Is this entity registered for deconstruction with this force? 
-    -- If false, it means a construction robot has been dispatched to deconstruct it, 
-    -- or it is not marked for deconstruction. 
+    -- is_registered_for_deconstruction(force) -> boolean
+    -- Is this entity registered for deconstruction with this force?
+    -- If false, it means a construction robot has been dispatched to deconstruct it,
+    -- or it is not marked for deconstruction.
     -- The complexity is effectively O(1) - it depends on the number of objects targeting this entity which should be small enough.
     return not entity.is_registered_for_deconstruction(force_name or "no_force")
 
   elseif action_type == ActionTypes.ENTITY_GHOST or action_type == ActionTypes.TILE_GHOST then
-    -- is_registered_for_construction() -> boolean 
-    -- Is this entity or tile ghost or item request proxy registered for construction? 
-    -- If false, it means a construction robot has been dispatched to build the entity, 
+    -- is_registered_for_construction() -> boolean
+    -- Is this entity or tile ghost or item request proxy registered for construction?
+    -- If false, it means a construction robot has been dispatched to build the entity,
     -- or it is not an entity that can be constructed.
     return not entity.is_registered_for_construction()
 
   elseif action_type == ActionTypes.UPGRADE then
     -- is_registered_for_upgrade() -> boolean
-    -- Is this entity registered for upgrade? 
-    -- If false, it means a construction robot has been dispatched to upgrade it, 
-    -- or it is not marked for upgrade. 
+    -- Is this entity registered for upgrade?
+    -- If false, it means a construction robot has been dispatched to upgrade it,
+    -- or it is not marked for upgrade.
     -- This is worst-case O(N) complexity where N is the current number of things in the upgrade queue.
     return not entity.is_registered_for_upgrade()
   end
@@ -957,7 +956,7 @@ end
 -- Determines, whether the area around the player should be rechecked (mainly from cache, but might also get rescanned, if something changed in the blueprint)
 -- Also, the building candidates are getting reordered according to action_type and player position.
 -- returns true -> yes: recheck
--- returns false -> no: don't recheck, build further on the old location 
+-- returns false -> no: don't recheck, build further on the old location
 local function needs_recheck(state)
   -- increment current_cycle
   state.current_cycle = (state.current_cycle or 0) + 1
