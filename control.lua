@@ -286,17 +286,21 @@ end
 
 ---@param entity LuaEntity
 ---@param request_proxy LuaEntity
+---@param player LuaPlayer
 local function try_insert_requested(entity, request_proxy, player)
   local requested = request_proxy.item_requests
   for _, countWithQuality in pairs(requested) do
     local name = countWithQuality.name
     local required = countWithQuality.count
+    local quality = countWithQuality.quality
 
     local to_insert = math.min(player.get_item_count(name), required)
     if to_insert > 0 then
-      local inserted = entity.insert { name = name, count = to_insert }
+      local stack_to_insert = { name = name, count = to_insert, quality = quality }
+      local inserted = entity.insert(stack_to_insert)
       if inserted > 0 then
-        player.remove_item{name = name, count = inserted}
+        stack_to_insert.count = inserted
+        player.remove_item(stack_to_insert)
         if inserted == required then
           countWithQuality.count = 0
         else
@@ -308,23 +312,31 @@ local function try_insert_requested(entity, request_proxy, player)
   -- request_proxy.item_requests = requested
 end
 
-local function insert_or_spill(player, entity, name, count)
+---@param player LuaPlayer
+---@param entity LuaEntity
+---@param stack ItemStackDefinition
+local function insert_or_spill(player, entity, stack)
   local inserted = 0
-  if player.can_insert {name=name, count=count} then
-    inserted = player.insert{name=name, count=count}
+  if player.can_insert(stack) then
+    inserted = player.insert(stack)
   end
 
-  if inserted < count then
+  if inserted < stack.count then
+    stack.count = stack.count - inserted
     if entity then
-      entity.surface.spill_item_stack(entity.position, {name = name, count = count - inserted})
+      entity.surface.spill_item_stack { position = entity.position, stack = stack }
     else
-      player.surface.spill_item_stack(player.position, {name = name, count = count - inserted})
+      player.surface.spill_item_stack { position = entity.position, stack = stack }
     end
   end
 end
 
-local function try_revive_with_stack(ghost, player, stack_to_place)
-  if player.get_item_count(stack_to_place.name) < stack_to_place.count then
+---@param ghost LuaEntity
+---@param player LuaPlayer
+---@param item_stack ItemStackDefinition
+local function try_revive_with_stack(ghost, player, item_stack)
+  local inventory = player.get_main_inventory()
+  if not inventory or inventory.get_item_count { name = item_stack.name, quality = item_stack.quality } < item_stack.count then
     return UNSUCCESS_SKIP
   end
 
@@ -340,12 +352,12 @@ local function try_revive_with_stack(ghost, player, stack_to_place)
     return UNSUCCESS_SKIP
   end
 
-  for name, count in pairs(items) do
-    insert_or_spill(player, entity, name, count)
+  for _, item_stack_on_ground in pairs(items) do
+    insert_or_spill(player, entity, item_stack_on_ground)
   end
-  player.remove_item(stack_to_place)
+  player.remove_item(item_stack)
 
-  if request_proxy then
+  if request_proxy and entity then
     try_insert_requested(entity, request_proxy, player)
   end
 
@@ -355,18 +367,25 @@ local function try_revive_with_stack(ghost, player, stack_to_place)
   return UNSUCCESS_SKIP
 end
 
-local function try_upgrade_with_stack(entity, target_name, player, stack_to_place)
+---comment
+---@param entity LuaEntity
+---@param player LuaPlayer
+---@param item_stack ItemStackDefinition
+---@return integer
+local function try_upgrade_with_stack(entity, player, item_stack)
 
   if not entity.valid then
     return UNSUCCESS_SKIP
   end
 
-  if player.get_item_count(stack_to_place.name) < stack_to_place.count then
+  local inventory = player.get_main_inventory()
+  if not inventory or inventory.get_item_count { name = item_stack.name, quality = item_stack.quality } < item_stack.count then
     return UNSUCCESS_SKIP
   end
 
   local new_entity = entity.surface.create_entity{
-    name = target_name,
+    name = item_stack.name,
+    quality = item_stack.quality,
     position = entity.position,
     direction = entity.direction,
     force = entity.force,
@@ -379,13 +398,15 @@ local function try_upgrade_with_stack(entity, target_name, player, stack_to_plac
   }
 
   if new_entity then
-    player.remove_item(stack_to_place)
+    player.remove_item(item_stack)
     return SUCCESS_DONE_ALL
   end
 
   return UNSUCCESS_SKIP
 end
 
+---@param entity LuaEntity
+---@param player LuaPlayer
 local function try_revive_entity(entity, player, state, flying_text_infos)
   if not force_match(entity, player, false) then
     return UNSUCCESS_SKIP
@@ -393,7 +414,12 @@ local function try_revive_entity(entity, player, state, flying_text_infos)
 
   local stacks_to_place = to_place(entity.ghost_name)
   for _, stack_to_place in pairs(stacks_to_place) do
-    if try_revive_with_stack(entity, player, stack_to_place) == SUCCESS_DONE_ALL then
+    local item_stack = {
+        name = stack_to_place.name,
+        count = stack_to_place.count,
+        quality = entity.quality.name,
+      }
+    if try_revive_with_stack(entity, player, item_stack) == SUCCESS_DONE_ALL then
       return SUCCESS_DONE_ALL
     end
   end
@@ -407,21 +433,26 @@ local function try_revive_tile(entity, player, state, flying_text_infos)
   return UNSUCCESS_SKIP
 end
 
-local function try_upgrade_single_entity(entity, target_name, player)
-
-  if entity.name == target_name then
-    -- same entity name: f.e. upgrade belt to belt
-    local direction = entity.get_upgrade_direction()
-    -- simply change direction
-    if direction and entity.direction and entity.direction ~= direction then
-      entity.direction = direction
-      entity.cancel_upgrade(player.force, player)
-      return SUCCESS_DONE_ALL
-    end
+---comment
+---@param entity LuaEntity
+---@param target_name any
+---@param target_quality any
+---@param player any
+---@return integer
+local function try_upgrade_single_entity(entity, target_name, target_quality, player)
+  if entity.name == target_name and entity.quality and entity.quality.name == target_quality then
+    -- nothing to upgrade 
+    entity.cancel_upgrade(player.force, player)
+    return SUCCESS_DONE_ALL
   else
     local stacks_to_place = to_place(target_name)
     for _, stack_to_place in pairs(stacks_to_place) do
-      if try_upgrade_with_stack(entity, target_name, player, stack_to_place) == SUCCESS_DONE_ALL then
+      local item_stack = {
+        name = stack_to_place.name,
+        count = stack_to_place.count,
+        quality = target_quality,
+      }
+      if try_upgrade_with_stack(entity, player, item_stack) == SUCCESS_DONE_ALL then
         return SUCCESS_DONE_ALL
       end
     end
@@ -436,35 +467,38 @@ end
 ---@param target_name any
 ---@param player any
 ---@return integer
-local function try_upgrade_paired_entity(entity, other_entity, target_name, player)
+local function try_upgrade_paired_entity(entity, other_entity, target_name, target_quality, player)
 
-  if try_upgrade_single_entity(entity, target_name, player) == UNSUCCESS_SKIP then
+  if try_upgrade_single_entity(entity, target_name, target_quality, player) == UNSUCCESS_SKIP then
     return UNSUCCESS_SKIP
   end
 
-  if try_upgrade_single_entity(other_entity, target_name, player) == UNSUCCESS_SKIP then
+  if try_upgrade_single_entity(other_entity, target_name, target_quality, player) == UNSUCCESS_SKIP then
     return UNSUCCESS_SKIP
   end
 
   return SUCCESS_DONE_ALL
 end
 
+---@param entity LuaEntity
+---@param player LuaPlayer
 local function try_upgrade(entity, player, state, flying_text_infos)
   if not force_match(entity, player, false) then
     return UNSUCCESS_SKIP
   end
 
-  local target_prototype = entity.get_upgrade_target()
+  local target_prototype, target_quality = entity.get_upgrade_target()
   if not target_prototype then
     return UNSUCCESS_SKIP
   end
 
   local target_name = target_prototype.name
+  local target_quality = (target_quality and target_quality.name) or "normal"
 
   if entity.type == "underground-belt" and entity.neighbours then
-    return try_upgrade_paired_entity(entity, entity.neighbours, target_name, player)
+    return try_upgrade_paired_entity(entity, entity.neighbours, target_name, target_quality, player)
   else
-    return try_upgrade_single_entity(entity, target_name, player)
+    return try_upgrade_single_entity(entity, target_name, target_quality, player)
   end
 end
 
@@ -512,7 +546,7 @@ end
 ---comment
 ---@param player LuaPlayer
 ---@param entity LuaEntity
----@param max_actions any
+---@param max_actions integer
 ---@param flying_text_infos any
 ---@return integer
 local function move_inventories_of_entity_into_players_inventory(player, entity, max_actions, flying_text_infos)
