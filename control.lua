@@ -811,6 +811,7 @@ local function try_deconstruct_tile(entity, player, state, flying_text_infos)
     local tile = entity.surface.get_tile(position.x, position.y)
     if can_insert_into_players_inventory(player, tile) then
       if player.mine_tile(tile) then
+        player.play_sound({ path = "utility/inventory_move" })
         return SUCCESS_DONE_ALL
       end
     end
@@ -837,6 +838,7 @@ local function try_deconstruct_entity(entity, player, state, flying_text_infos)
       if success_state == SUCCESS_DONE_ALL or success_state == SUCCESS_DONE_NOTHING then
         if can_insert_into_players_inventory(player, entity) then
           if player.mine_entity(entity, false) then
+            player.play_sound({ path = "utility/inventory_move" })
             success_state = SUCCESS_DONE_ALL
           else
             success_state = UNSUCCESS_SKIP
