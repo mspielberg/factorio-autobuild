@@ -706,6 +706,11 @@ local belt_types =
   ["underground-belt"] = true,
 }
 
+function get_transport_line_stack_by_index(transport_line, index)
+  -- transport_line[index] may cause error which without pcall crashes game for some reason:
+  return transport_line[index]
+end
+
 ---comment
 ---@param player LuaPlayer
 ---@param entity LuaEntity
@@ -736,19 +741,8 @@ local function move_items_on_belt_into_players_inventory(player, entity, max_act
     local transport_line = entity.get_transport_line(index)
     if transport_line and transport_line.valid then
       for k = #transport_line, 1, -1 do
-
-        function check_transport_line_index(transport_line2, i2)
-          -- transport_line2[i2] may cause error which without pcall crashes game for some reason:
-          if transport_line2[i2] ~= nil then return true end
-        end
-
-        ok, result_or_error = pcall(check_transport_line_index, transport_line, k)
-        if not ok then
-          return UNSUCCESS_SKIP
-        end
-
-        local stack = transport_line[k]
-        if stack and stack.valid then
+        local ok, stack = pcall(get_transport_line_stack_by_index, transport_line, k)
+        if ok and stack and stack.valid then
           local count = stack.count
           local name = stack.name
           if count >= 1 then
@@ -756,10 +750,6 @@ local function move_items_on_belt_into_players_inventory(player, entity, max_act
             if count == 0 then
               return SUCCESS_DONE_PARTIALLY
             end
-
-            -- if not is_special_stack(stack) then
-            --   stack = { name = name, count = count }
-            -- end
 
             if player.can_insert(stack) then
               local actually_inserted = player.insert(stack)
