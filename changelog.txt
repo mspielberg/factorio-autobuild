@@ -1,4 +1,11 @@
 ---------------------------------------------------------------------------------------------------
+Version: 0.6.3
+Date: 2025-11-08
+  Bugfixes:
+    - Fix inserting modules with wrong quality. Thanks to pomp567
+    - Fix error, when deconstructing belts. Thanks to domisPL
+    - Fix nil access when spilling items. Thanks to Dreaden
+---------------------------------------------------------------------------------------------------
 Version: 0.6.2
 Date: 2025-01-04
   Bugfixes:
