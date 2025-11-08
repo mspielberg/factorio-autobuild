@@ -326,7 +326,10 @@ local function insert_or_spill(player, entity, stack)
     if entity then
       entity.surface.spill_item_stack { position = entity.position, stack = stack }
     else
-      player.surface.spill_item_stack { position = entity.position, stack = stack }
+      entity = player.character
+      if entity then
+        player.surface.spill_item_stack { position = entity.position, stack = stack }
+      end
     end
   end
 end
