@@ -731,11 +731,22 @@ local function move_items_on_belt_into_players_inventory(player, entity, max_act
   local remaining_actions = max_actions
   local done_something = false
 
-  for index = 1, max_index do
+  for index = 1, entity.get_max_transport_line_index()  do
 ---@diagnostic disable-next-line: param-type-mismatch
     local transport_line = entity.get_transport_line(index)
     if transport_line and transport_line.valid then
       for k = #transport_line, 1, -1 do
+
+        function check_transport_line_index(transport_line2, i2)
+          -- transport_line2[i2] may cause error which without pcall crashes game for some reason:
+          if transport_line2[i2] ~= nil then return true end
+        end
+
+        ok, result_or_error = pcall(check_transport_line_index, transport_line, k)
+        if not ok then
+          return UNSUCCESS_SKIP
+        end
+
         local stack = transport_line[k]
         if stack and stack.valid then
           local count = stack.count
