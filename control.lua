@@ -294,7 +294,7 @@ local function try_insert_requested(entity, request_proxy, player)
     local required = countWithQuality.count
     local quality = countWithQuality.quality
 
-    local to_insert = math.min(player.get_item_count(name), required)
+    local to_insert = math.min(player.get_item_count({name = name, quality = quality, comparator="="}), required)
     if to_insert > 0 then
       local stack_to_insert = { name = name, count = to_insert, quality = quality }
       local inserted = entity.insert(stack_to_insert)
@@ -313,7 +313,7 @@ local function try_insert_requested(entity, request_proxy, player)
 end
 
 ---@param player LuaPlayer
----@param entity LuaEntity
+---@param entity LuaEntity?
 ---@param stack ItemStackDefinition
 local function insert_or_spill(player, entity, stack)
   local inserted = 0
@@ -326,9 +326,9 @@ local function insert_or_spill(player, entity, stack)
     if entity then
       entity.surface.spill_item_stack { position = entity.position, stack = stack }
     else
-      entity = player.character
-      if entity then
-        player.surface.spill_item_stack { position = entity.position, stack = stack }
+      character = player.character
+      if character then
+        player.surface.spill_item_stack { position = character.position, stack = stack }
       end
     end
   end
@@ -347,9 +347,10 @@ local function try_revive_with_stack(ghost, player, item_stack)
     return UNSUCCESS_SKIP
   end
 
-  local items, entity, request_proxy = ghost.revive{
+  local items, entity, request_proxy = ghost.revive {
     return_item_request_proxy = true,
     raise_revive = true,
+    overflow = inventory,
   }
   if not items then
     return UNSUCCESS_SKIP
@@ -733,7 +734,7 @@ local function move_items_on_belt_into_players_inventory(player, entity, max_act
   for index = 1, max_index do
 ---@diagnostic disable-next-line: param-type-mismatch
     local transport_line = entity.get_transport_line(index)
-    if transport_line then
+    if transport_line and transport_line.valid then
       for k = #transport_line, 1, -1 do
         local stack = transport_line[k]
         if stack and stack.valid then
